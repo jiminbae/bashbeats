@@ -310,8 +310,8 @@ bashbeats/
 
 Team 21
 
-- JiMin Bae
-- ChangWoo Ha
+- Jimin Bae
+- Changwoo Ha
 
 Kyungpook National University  
 ELEC462 System Programming
