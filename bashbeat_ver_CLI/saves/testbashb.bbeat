@@ -1,0 +1,55 @@
+# BashBeats project file
+TITLE testbashb
+BPM 120
+
+TRACK 0
+  NAME  Track 1
+  INSTR samples/silent.wav
+  BASE  60
+  VOL   0.85
+  MUTE  0
+  # start_tick  note  duration_tick  velocity
+  0  70  1  80
+  1  70  1  80
+  2  70  1  80
+  3  70  1  80
+  4  70  1  80
+  4  69  1  80
+  5  69  1  80
+  6  69  1  80
+  7  69  1  80
+END
+
+TRACK 1
+  NAME  Track2
+  INSTR samples/test1.wav
+  BASE  60
+  VOL   1.00
+  MUTE  1
+  # start_tick  note  duration_tick  velocity
+  0  65  4  80
+  4  64  4  80
+  8  61  4  80
+  8  64  1  80
+  10  64  1  80
+  9  60  1  80
+  11  60  1  80
+END
+
+TRACK 2
+  NAME  Track3
+  INSTR samples/silent.wav
+  BASE  60
+  VOL   1.00
+  MUTE  0
+  # start_tick  note  duration_tick  velocity
+END
+
+TRACK 3
+  NAME  Track4
+  INSTR samples/test1.wav
+  BASE  60
+  VOL   1.00
+  MUTE  0
+  # start_tick  note  duration_tick  velocity
+END
