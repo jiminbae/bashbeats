@@ -1,35 +1,31 @@
-CC ?= gcc
-CFLAGS ?= -std=c11 -Wall -Wextra -O2 -D_POSIX_C_SOURCE=200809L
-LDFLAGS ?= -pthread -lm
-ALSA_CFLAGS := $(shell pkg-config --cflags alsa 2>/dev/null)
-ALSA_LIBS := $(shell pkg-config --libs alsa 2>/dev/null)
+CC     = gcc
+CFLAGS = -Wall -Wextra -pthread -g
+LIBS   = -lm -lasound -lncurses
+TARGET = bashbeats
 
-COMMON_SRC = src/common.c src/wav.c src/session.c src/synth.c src/ring.c
-SERVER_SRC = src/server.c $(COMMON_SRC)
-CLIENT_SRC = src/client.c src/common.c
+# Full build (audio engine implemented)
+SRCS_FULL = main.c data.c audio.c sampler.c \
+            stream.c file_io.c editor.c piano.c input.c perform.c
 
-ifneq ($(ALSA_LIBS),)
-CLIENT_ALSA_FLAGS = -DHAVE_ALSA $(ALSA_CFLAGS)
-CLIENT_ALSA_LIBS = $(ALSA_LIBS)
-endif
+# Stub build (week 1: audio engine not yet implemented)
+SRCS_STUB = main.c data.c audio_stub.c \
+            stream.c file_io.c editor.c piano.c input.c perform.c
 
-.PHONY: all clean samples run-server run-client
-all: bashbeats_server bashbeats_client
+# Default: stub build for independent development
+all: stub
 
-bashbeats_server: $(SERVER_SRC) src/*.h
-	$(CC) $(CFLAGS) -o $@ $(SERVER_SRC) $(LDFLAGS)
+stub:
+	$(CC) $(CFLAGS) -o $(TARGET) $(SRCS_STUB) -lm -lncurses -lpthread
+	@echo "Built with audio_stub.c — debug output goes to /tmp/bashbeats.log"
 
-bashbeats_client: $(CLIENT_SRC) src/*.h
-	$(CC) $(CFLAGS) $(CLIENT_ALSA_FLAGS) -o $@ $(CLIENT_SRC) $(LDFLAGS) $(CLIENT_ALSA_LIBS)
-
-samples:
-	python3 tools/generate_samples.py
-
-run-server: all samples
-	./bashbeats_server samples/kick.wav samples/snare.wav samples/hat.wav samples/piano.wav
-
-run-client: all
-	./bashbeats_client 127.0.0.1 7777 --file out.raw
+full:
+	$(CC) $(CFLAGS) -o $(TARGET) $(SRCS_FULL) $(LIBS)
 
 clean:
-	rm -f bashbeats_server bashbeats_client out.raw session.daw
+	rm -f $(TARGET)
+
+# View audio stub debug log (run in another terminal)
+log:
+	tail -f /tmp/bashbeats.log
+
+.PHONY: all stub full clean log
