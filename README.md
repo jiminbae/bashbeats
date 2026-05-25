@@ -129,9 +129,7 @@ EDIT mode is the piano-roll note editor.
 - `Ctrl+F`: Open FILE mode
 - `Ctrl+C`: Show quit confirmation
 
-If you move the cursor while playback is running, BashBeats pauses playback,
-clears currently sounding notes, and retimes playback to the new cursor
-position. Press `Space` again to continue from that point.
+
 
 ### FILE Mode
 
