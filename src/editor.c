@@ -86,10 +86,11 @@ void editor_init(Project *p)
     g_editor.view_tick_start  = 0;
     g_editor.span_active      = 0;
     g_editor.play_cursor      = 0;
+    g_editor.exit_to_intro    = 0;
 
     file_default_path(p->title, g_editor.file_path, sizeof(g_editor.file_path));
     snprintf(g_editor.status_msg, sizeof(g_editor.status_msg),
-             "BashBeats ready.  Enter=edit track  ^F=file  ^Q=quit");
+             "BashBeats ready.  Enter=edit track  ^F=file  Ctrl+C=quit");
     (void)p;
 }
 
@@ -150,27 +151,24 @@ void editor_draw_header(const Project *p)
 void editor_draw_help(void)
 {
     int hr = LINES - HELP_ROWS;
+    const char *help = "";
     attron(A_REVERSE);
     mvhline(hr, 0, ' ', COLS);
 
     switch (g_editor.mode) {
     case MODE_TRACK:
-        mvprintw(hr, 0,
-            " Enter:Edit  Space:Play/Pause  ^F:File  ^Q:Quit |"
-            " Up/Dn:Select  m:Mute  +/-:Vol  a:Add  d:Del  b:BaseNote  i:Instr");
+        help = "Track  Enter:edit  Space:play/pause  ESC:intro  ^F:file  Ctrl+C:quit | Up/Dn:track  Left/Right:seek  a:add  d:del  i:instr  b:base  m:mute";
         break;
     case MODE_EDIT:
-        mvprintw(hr, 0,
-            " ESC:Back  Space:Play/Pause  Enter:Note  ^F:File  ^Q:Quit |"
-            " Arrows:Move  Ctrl+Arrows:Jump  ,:SpanStart  .:SpanEnd  Del:Erase  +/-:BPM");
+        help = "Edit  Arrows:move  Space:play/pause  Enter:note  ESC:tracks | , then .:long note  Del:erase  [/]:track  +/-:BPM  ^F:file  Ctrl+C:quit";
         break;
     case MODE_FILE:
-        mvprintw(hr, 0,
-            " ESC:Back  S:Save  L:Load  N:New  R:RenamePath  T:Title  E:ExportWAV");
+        help = "File  S:save  L:load  N:new  R:path  T:title  E:export wav  ESC:tracks  Ctrl+C:quit";
         break;
     default:
         break;
     }
+    mvprintw(hr, 0, "%-*.*s", COLS - 1, COLS - 1, help);
     attroff(A_REVERSE);
 
     /* Status line */
@@ -196,8 +194,9 @@ static void draw_progress_bar(const Project *p, int row)
     if (row >= LINES - HELP_ROWS) return;
 
     uint32_t total  = project_last_tick(p);
-    uint32_t cur    = audio_is_playing() ? audio_current_tick()
-                                         : g_editor.play_cursor;
+    uint32_t cur    = (audio_is_playing() || audio_is_paused())
+                    ? audio_current_tick()
+                    : g_editor.play_cursor;
     if (cur > total) cur = total;
 
     int bar_w = COLS - 22;
@@ -208,6 +207,7 @@ static void draw_progress_bar(const Project *p, int row)
     /* Sync play_cursor when playing */
     if (audio_is_playing()) g_editor.play_cursor = cur;
 
+    mvhline(row, 0, ' ', COLS);
     attron(COLOR_PAIR(1) | A_BOLD);
     mvprintw(row, 1, "[");
     attroff(COLOR_PAIR(1) | A_BOLD);
@@ -740,15 +740,15 @@ void editor_set_mode(EditorMode m, Project *p)
     switch (m) {
     case MODE_TRACK:
         snprintf(g_editor.status_msg, sizeof(g_editor.status_msg),
-                 "TRACK  Enter=edit  Space=play/pause  a=add  d=del  b=base note");
+                 "TRACK: Enter edits the selected track. ESC returns to intro.");
         break;
     case MODE_EDIT:
         snprintf(g_editor.status_msg, sizeof(g_editor.status_msg),
-                 "EDIT  Enter=note  Space=play/pause  ESC=back  Ctrl+Arrows=jump");
+                 "EDIT: Move with arrows. During playback, moving pauses and retimes playback.");
         break;
     case MODE_FILE:
         snprintf(g_editor.status_msg, sizeof(g_editor.status_msg),
-                 "FILE  S=save  L=load  N=new  R=path  T=title  ESC=back");
+                 "FILE: Save/load projects or export the current song as WAV.");
         break;
     default: break;
     }
@@ -762,6 +762,12 @@ void editor_set_mode(EditorMode m, Project *p)
 static void handle_track_key(int ch, Project *p)
 {
     switch (ch) {
+    case 27:
+        audio_stop();
+        g_editor.exit_to_intro = 1;
+        snprintf(g_editor.status_msg, sizeof(g_editor.status_msg),
+                 "Returning to intro...");
+        break;
 
     /* Navigation */
     case KEY_UP:
@@ -858,6 +864,7 @@ static void handle_track_key(int ch, Project *p)
         int idx = p->track_count++;
         snprintf(p->tracks[idx].name, 31, "Track%d", idx+1);
         strncpy(p->tracks[idx].instrument, instr, 127);
+        p->tracks[idx].instrument[127] = '\0';
         p->tracks[idx].volume      = 1.0f;
         p->tracks[idx].mute        = 0;
         p->tracks[idx].event_count = 0;
@@ -874,6 +881,7 @@ static void handle_track_key(int ch, Project *p)
         char instr[128] = {0};
         if (pick_instrument(instr)) {
             strncpy(p->tracks[g_editor.track_cursor].instrument, instr, 127);
+            p->tracks[g_editor.track_cursor].instrument[127] = '\0';
             audio_load_instrument(g_editor.track_cursor, instr);
             snprintf(g_editor.status_msg, sizeof(g_editor.status_msg),
                      "Instrument changed.");
@@ -900,6 +908,8 @@ static void handle_track_key(int ch, Project *p)
                 g_editor.track_cursor = p->track_count - 1;
             if (g_editor.cur_track >= p->track_count)
                 g_editor.cur_track = p->track_count - 1;
+            for (int i = 0; i < p->track_count; i++)
+                audio_load_instrument(i, p->tracks[i].instrument);
             snprintf(g_editor.status_msg, sizeof(g_editor.status_msg),
                      "Track %d deleted.", idx+1);
         } else {
@@ -937,6 +947,16 @@ static uint32_t track_last_tick(const Project *p)
     return last;
 }
 
+static void pause_after_edit_seek(void)
+{
+    if (!audio_is_playing()) return;
+    audio_seek_tick((uint32_t)g_editor.cur_tick);
+    audio_pause();
+    g_editor.play_cursor = (uint32_t)g_editor.cur_tick;
+    snprintf(g_editor.status_msg, sizeof(g_editor.status_msg),
+             "Paused at tick %d. Press Space to play from here.", g_editor.cur_tick);
+}
+
 static void handle_edit_key(int ch, Project *p)
 {
     const Track *ct = &p->tracks[g_editor.cur_track];
@@ -958,25 +978,26 @@ static void handle_edit_key(int ch, Project *p)
     /* Arrow: cursor movement */
     case KEY_UP:
         if (g_editor.cur_note < note_max) g_editor.cur_note++;
+        pause_after_edit_seek();
         break;
     case KEY_DOWN:
         if (g_editor.cur_note > note_min) g_editor.cur_note--;
+        pause_after_edit_seek();
         break;
     case KEY_RIGHT:
-        /* If playing, just nudge the seek point; else move edit cursor */
         g_editor.cur_tick++;
-        if (audio_is_playing()) audio_seek_tick(g_editor.cur_tick);
+        pause_after_edit_seek();
         break;
     case KEY_LEFT:
         if (g_editor.cur_tick > 0) g_editor.cur_tick--;
-        if (audio_is_playing()) audio_seek_tick(g_editor.cur_tick);
+        pause_after_edit_seek();
         break;
 
     /* Ctrl+Right: jump to last note */
     case KEY_CTRL('f'):   /* some terminals send 06 */
     case 518: case 560:   /* KEY_SRIGHT variants */
         g_editor.cur_tick = track_last_tick(p);
-        if (audio_is_playing()) audio_seek_tick(g_editor.cur_tick);
+        pause_after_edit_seek();
         snprintf(g_editor.status_msg, sizeof(g_editor.status_msg),
                  "Jumped to last note (tick %u).", g_editor.cur_tick);
         break;
@@ -985,7 +1006,7 @@ static void handle_edit_key(int ch, Project *p)
     case KEY_CTRL('b'):   /* 02 */
     case 517: case 559:
         g_editor.cur_tick = track_first_tick(p);
-        if (audio_is_playing()) audio_seek_tick(g_editor.cur_tick);
+        pause_after_edit_seek();
         snprintf(g_editor.status_msg, sizeof(g_editor.status_msg),
                  "Jumped to first note (tick %u).", g_editor.cur_tick);
         break;
@@ -998,13 +1019,13 @@ static void handle_edit_key(int ch, Project *p)
             g_editor.cur_tick = (int)audio_current_tick();
             g_editor.play_cursor = (uint32_t)g_editor.cur_tick;
             snprintf(g_editor.status_msg, sizeof(g_editor.status_msg),
-                     "Paused at tick %d.", g_editor.cur_tick);
+                     "Paused at tick %d. Press Space to restart from cursor.", g_editor.cur_tick);
         } else {
             /* Always restart from current cursor, even if paused */
             audio_seek_tick((uint32_t)g_editor.cur_tick);
             audio_play(p);
             snprintf(g_editor.status_msg, sizeof(g_editor.status_msg),
-                     "Playing from tick %d  (%s).",
+                     "Playing from tick %d (%s).",
                      g_editor.cur_tick,
                      midi_note_name(g_editor.cur_note));
         }
@@ -1154,7 +1175,11 @@ static int pick_instrument(char out[128])
         case KEY_UP:    if (sel > 0) sel--;           break;
         case KEY_DOWN:  if (sel < nf-1) sel++;        break;
         case '\n': case '\r': case KEY_ENTER:
-            if (nf > 0) { strncpy(out, files[fidx[sel]], 127); accepted=1; }
+            if (nf > 0) {
+                strncpy(out, files[fidx[sel]], 127);
+                out[127] = '\0';
+                accepted=1;
+            }
             done = 1; break;
         case 27:        done = 1; break;
         case KEY_BACKSPACE: case 127: {
@@ -1233,7 +1258,11 @@ static int pick_savefile(char out[256])
         case KEY_UP:   if (sel > 0) sel--;      break;
         case KEY_DOWN: if (sel < nf-1) sel++;   break;
         case '\n': case '\r': case KEY_ENTER:
-            if (nf > 0) { strncpy(out, files[fidx[sel]], 255); accepted=1; }
+            if (nf > 0) {
+                strncpy(out, files[fidx[sel]], 255);
+                out[255] = '\0';
+                accepted=1;
+            }
             done = 1; break;
         case 27: done = 1; break;
         case KEY_BACKSPACE: case 127: {
@@ -1378,6 +1407,7 @@ static void handle_file_key(int ch, Project **pp)
             audio_stop();
             project_free(*pp); *pp = loaded;
             strncpy(g_editor.file_path, path, 255);
+            g_editor.file_path[255] = '\0';
             g_editor.cur_track = 0; g_editor.cur_tick = 0;
             g_editor.track_cursor = 0;
             audio_set_bpm((*pp)->bpm);
@@ -1404,7 +1434,10 @@ static void handle_file_key(int ch, Project **pp)
     case 'r': case 'R': {
         char buf[256] = {0};
         prompt_string("Path: ", buf, 255);
-        if (buf[0]) strncpy(g_editor.file_path, buf, 255);
+        if (buf[0]) {
+            strncpy(g_editor.file_path, buf, 255);
+            g_editor.file_path[255] = '\0';
+        }
         snprintf(g_editor.status_msg, sizeof(g_editor.status_msg),
                  "Path: %.100s", g_editor.file_path);
         break; }
@@ -1414,6 +1447,7 @@ static void handle_file_key(int ch, Project **pp)
         prompt_string("Title: ", buf, 63);
         if (buf[0]) {
             strncpy((*pp)->title, buf, 63);
+            (*pp)->title[63] = '\0';
             file_default_path((*pp)->title, g_editor.file_path, sizeof(g_editor.file_path));
         }
         snprintf(g_editor.status_msg, sizeof(g_editor.status_msg),
@@ -1477,9 +1511,12 @@ Project *editor_run(Project *p)
         if (ch == ERR) { { struct timespec _ts={0,16000000L}; nanosleep(&_ts,NULL); }; continue; }
 
         /* Global quit */
-        if (ch == KEY_CTRL_Q) {
-            if (audio_is_playing()) audio_stop();
-            break;
+        if (ch == KEY_CTRL_C) {
+            if (confirm_quit()) {
+                if (audio_is_playing()) audio_stop();
+                break;
+            }
+            continue;
         }
 
         /* Global: ^F goes to file mode from anywhere */
@@ -1494,6 +1531,8 @@ Project *editor_run(Project *p)
         case MODE_FILE:  handle_file_key(ch, &p);  break;
         default: break;
         }
+
+        if (g_editor.exit_to_intro) break;
     }
     return p;
 }

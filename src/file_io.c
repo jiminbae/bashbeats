@@ -113,21 +113,23 @@ Project *project_new(const char *instrument_path)
     Project *p = calloc(1, sizeof(Project));
     if (!p) return NULL;
 
-    strncpy(p->title, "Untitled", sizeof(p->title) - 1);
+    snprintf(p->title, sizeof(p->title), "Untitled");
     p->bpm         = 120;
     p->track_count = 1;
 
     Track *t = &p->tracks[0];
-    strncpy(t->name, "Track 1", 31);
+    snprintf(t->name, sizeof(t->name), "Track 1");
     t->volume      = 1.0f;
     t->mute        = 0;
     t->event_count = 0;
     t->base_note   = 60;   /* middle C */
 
-    if (instrument_path && instrument_path[0])
+    if (instrument_path && instrument_path[0]) {
         strncpy(t->instrument, instrument_path, 127);
-    else
-        snprintf(t->instrument, 128, "%s/silent.wav", SAMPLES_DIR);
+        t->instrument[127] = '\0';
+    } else {
+        snprintf(t->instrument, 128, "%s/piano.wav", SAMPLES_DIR);
+    }
 
     return p;
 }
@@ -144,7 +146,7 @@ Project *project_load(const char *path)
     Project *p = calloc(1, sizeof(Project));
     if (!p) { fclose(fp); return NULL; }
     p->bpm = 120;
-    strncpy(p->title, "Untitled", sizeof(p->title) - 1);
+    snprintf(p->title, sizeof(p->title), "Untitled");
 
     char line[512];
     int  cur = -1;   /* current track index */
@@ -162,6 +164,7 @@ Project *project_load(const char *path)
 
         if (strncmp(tok, "TITLE ", 6) == 0) {
             strncpy(p->title, tok + 6, sizeof(p->title) - 1);
+            p->title[sizeof(p->title) - 1] = '\0';
 
         } else if (strncmp(tok, "BPM ", 4) == 0) {
             p->bpm = atoi(tok + 4);
@@ -177,13 +180,15 @@ Project *project_load(const char *path)
             p->tracks[idx].mute      = 0;
             p->tracks[idx].base_note = 60;
             p->tracks[idx].event_count = 0;
-            snprintf(p->tracks[idx].instrument, 128, "%s/silent.wav", SAMPLES_DIR);
+            snprintf(p->tracks[idx].instrument, 128, "%s/piano.wav", SAMPLES_DIR);
 
         } else if (cur >= 0 && strncmp(tok, "NAME ", 5) == 0) {
             strncpy(p->tracks[cur].name, tok + 5, 31);
+            p->tracks[cur].name[31] = '\0';
 
         } else if (cur >= 0 && strncmp(tok, "INSTR ", 6) == 0) {
             strncpy(p->tracks[cur].instrument, tok + 6, 127);
+            p->tracks[cur].instrument[127] = '\0';
 
         } else if (cur >= 0 && strncmp(tok, "BASE ", 5) == 0) {
             int bn = atoi(tok + 5);

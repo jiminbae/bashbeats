@@ -4,7 +4,7 @@ BPM 140
 
 TRACK 0
   NAME     Track 1
-  INSTR samples/silent.wav
+  INSTR samples/piano.wav
   BASE  60
   VOL   0.85
   MUTE  0
@@ -42,7 +42,7 @@ END
 
 TRACK 1
   NAME     Track2
-  INSTR samples/test1.wav
+  INSTR samples/piano.wav
   BASE  60
   VOL   1.00
   MUTE  1
@@ -65,7 +65,7 @@ END
 
 TRACK 2
   NAME     Track3
-  INSTR samples/test1.wav
+  INSTR samples/piano.wav
   BASE  56
   VOL   0.80
   MUTE  0
@@ -79,7 +79,7 @@ END
 
 TRACK 3
   NAME     Track4
-  INSTR samples/test1.wav
+  INSTR samples/piano.wav
   BASE  60
   VOL   1.00
   MUTE  0

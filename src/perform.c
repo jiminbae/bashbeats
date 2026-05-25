@@ -4,6 +4,7 @@
 #include "audio.h"
 #include "file_io.h"
 #include "data.h"
+#include "input.h"
 #include <ncurses.h>
 #include <string.h>
 #include <stdio.h>
@@ -339,6 +340,7 @@ static void perf_pick_instrument(void)
         if (ch=='\n'||ch=='\r'||ch==KEY_ENTER) {
             if (nflt>0) {
                 strncpy(s_instr,files[fidx[sel]],sizeof(s_instr)-1);
+                s_instr[sizeof(s_instr)-1] = '\0';
                 audio_load_instrument(0, s_instr);
                 const char *shown = strrchr(s_instr, '/');
                 shown = shown ? shown + 1 : s_instr;
@@ -415,8 +417,11 @@ void run_performance_mode(void)
         /* ── ESC: back to intro (caller handles the loop) ── */
         if (ch == 27) break;
 
-        /* ── ^Q: quit entirely ── */
-        if (ch == ('q'&0x1f)) { endwin(); exit(0); }
+        /* ── Ctrl+C: quit entirely after confirmation ── */
+        if (ch == KEY_CTRL_C) {
+            g_sigint_received = 1;
+            continue;
+        }
 
         /* ── Octave ── */
         if (ch == KEY_UP)   { if (s_octave<7) s_octave++; snprintf(s_status,sizeof(s_status),"Octave: %d/%d",s_octave,s_octave+1); continue; }

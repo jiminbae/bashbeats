@@ -16,6 +16,8 @@
 #define AUDIO_CHANNELS   2
 #define AUDIO_BLOCK      256
 #define MAX_VOICES       128
+#define MASTER_GAIN      0.58
+#define RELEASE_FRAMES   384
 
 typedef struct {
     int sample_rate;
@@ -37,6 +39,7 @@ typedef struct {
     double inc;
     float gain;
     int64_t frames_left;
+    int release_left;
 } Voice;
 
 static InstrumentSlot s_slots[MAX_TRACKS];
@@ -50,7 +53,8 @@ static Project *s_project = NULL;
 static int s_playing = 0;
 static int s_paused = 0;
 static int s_bpm = 120;
-static uint32_t s_tick = 0;
+static uint32_t s_tick = 0;         /* next tick to render */
+static uint32_t s_display_tick = 0; /* last tick rendered, used by the UI */
 static double s_frames_to_next_tick = 0.0;
 static FILE *s_aplay = NULL;
 
@@ -82,11 +86,13 @@ static void write_u32_le(FILE *fp, uint32_t v)
     fwrite(b, 1, sizeof(b), fp);
 }
 
-static int16_t clip_i16(int v)
+static int16_t mix_to_i16(int mix)
 {
-    if (v > 32767) return 32767;
-    if (v < -32768) return -32768;
-    return (int16_t)v;
+    double x = ((double)mix / 32768.0) * MASTER_GAIN;
+    double y = tanh(1.25 * x) / tanh(1.25);
+    if (y > 0.98) y = 0.98;
+    if (y < -0.98) y = -0.98;
+    return (int16_t)(y * 32767.0);
 }
 
 static double frames_per_tick(int bpm)
@@ -243,8 +249,29 @@ static void trigger_voice_locked(int track, int note, float gain, uint32_t durat
         .pos = 0.0,
         .inc = resample * pitch,
         .gain = gain,
-        .frames_left = frames_left
+        .frames_left = frames_left,
+        .release_left = 0
     };
+}
+
+static void begin_release(Voice *voice)
+{
+    if (!voice || !voice->active) return;
+    if (voice->release_left <= 0) voice->release_left = RELEASE_FRAMES;
+    voice->frames_left = -1;
+}
+
+static float voice_release_gain(Voice *voice)
+{
+    if (!voice || voice->release_left <= 0) return 1.0f;
+    return (float)voice->release_left / (float)RELEASE_FRAMES;
+}
+
+static void advance_voice_release(Voice *voice)
+{
+    if (!voice || voice->release_left <= 0) return;
+    voice->release_left--;
+    if (voice->release_left <= 0) voice->active = 0;
 }
 
 static void fire_project_tick_locked(uint32_t tick)
@@ -278,6 +305,7 @@ static void render_live_block(int16_t *out, int frames)
         if (s_playing && !s_paused && s_project) {
             if (s_frames_to_next_tick <= 0.0) {
                 fire_project_tick_locked(s_tick);
+                s_display_tick = s_tick;
                 s_tick++;
                 s_frames_to_next_tick += frames_per_tick(s_bpm);
             }
@@ -290,18 +318,20 @@ static void render_live_block(int16_t *out, int frames)
             if (!voice->active) continue;
 
             WavSample *sample = &s_slots[voice->track].sample;
-            if (voice->pos >= (double)(sample->frames - 1) ||
-                voice->frames_left == 0) {
+            if (voice->pos >= (double)(sample->frames - 1)) {
                 voice->active = 0;
                 continue;
             }
+            if (voice->frames_left == 0) begin_release(voice);
 
-            mix += (int)((float)sample_at(sample, voice->pos) * voice->gain);
+            mix += (int)((float)sample_at(sample, voice->pos) *
+                         voice->gain * voice_release_gain(voice));
             voice->pos += voice->inc;
             if (voice->frames_left > 0) voice->frames_left--;
+            advance_voice_release(voice);
         }
 
-        int16_t s = clip_i16(mix);
+        int16_t s = mix_to_i16(mix);
         out[f * 2] = s;
         out[f * 2 + 1] = s;
     }
@@ -318,9 +348,11 @@ static void close_aplay(void)
 static void open_aplay(void)
 {
     if (s_aplay) return;
-    s_aplay = popen("aplay -q -f S16_LE -c 2 -r 44100 2>/tmp/bashbeats_aplay.err", "w");
+    s_aplay = popen("aplay -q -f S16_LE -c 2 -r 44100 -B 20000 -F 5000 2>/tmp/bashbeats_aplay.err", "w");
     if (!s_aplay) {
         fprintf(stderr, "[audio] aplay unavailable; TCP streaming/export still work\n");
+    } else {
+        setvbuf(s_aplay, NULL, _IONBF, 0);
     }
 }
 
@@ -338,6 +370,8 @@ static void *audio_thread(void *arg)
             if (wrote != AUDIO_BLOCK * AUDIO_CHANNELS || ferror(s_aplay)) {
                 clearerr(s_aplay);
                 close_aplay();
+            } else {
+                fflush(s_aplay);
             }
         }
 
@@ -362,6 +396,7 @@ int audio_init(const char *sample_dir)
     s_running = 1;
     s_bpm = 120;
     s_tick = 0;
+    s_display_tick = 0;
     s_frames_to_next_tick = 0.0;
     memset(s_voices, 0, sizeof(s_voices));
     pthread_mutex_unlock(&s_audio_mtx);
@@ -443,7 +478,7 @@ void audio_note_off(int track_idx, int note)
         if (s_voices[i].active &&
             (track_idx < 0 || s_voices[i].track == track_idx) &&
             s_voices[i].note == note) {
-            s_voices[i].active = 0;
+            begin_release(&s_voices[i]);
         }
     }
     pthread_mutex_unlock(&s_audio_mtx);
@@ -458,6 +493,8 @@ void audio_play(Project *p)
     s_playing = 1;
     s_paused = 0;
     s_frames_to_next_tick = 0.0;
+    s_display_tick = s_tick;
+    memset(s_voices, 0, sizeof(s_voices));
     pthread_mutex_unlock(&s_audio_mtx);
 }
 
@@ -465,6 +502,7 @@ void audio_pause(void)
 {
     pthread_mutex_lock(&s_audio_mtx);
     s_paused = 1;
+    memset(s_voices, 0, sizeof(s_voices));
     pthread_mutex_unlock(&s_audio_mtx);
 }
 
@@ -498,7 +536,9 @@ void audio_seek_tick(uint32_t tick)
 {
     pthread_mutex_lock(&s_audio_mtx);
     s_tick = tick;
+    s_display_tick = tick;
     s_frames_to_next_tick = 0.0;
+    memset(s_voices, 0, sizeof(s_voices));
     pthread_mutex_unlock(&s_audio_mtx);
 }
 
@@ -521,7 +561,7 @@ int audio_is_paused(void)
 uint32_t audio_current_tick(void)
 {
     pthread_mutex_lock(&s_audio_mtx);
-    uint32_t v = s_tick;
+    uint32_t v = s_display_tick;
     pthread_mutex_unlock(&s_audio_mtx);
     return v;
 }
@@ -583,7 +623,8 @@ static void offline_trigger(Voice *voices, WavSample *samples, const Project *p,
         .pos = 0.0,
         .inc = resample * pitch,
         .gain = gain,
-        .frames_left = frames_left
+        .frames_left = frames_left,
+        .release_left = 0
     };
 }
 
@@ -654,17 +695,19 @@ int audio_export_wav(Project *p, const char *path)
                 Voice *voice = &voices[v];
                 if (!voice->active) continue;
                 WavSample *sample = &samples[voice->track];
-                if (voice->pos >= (double)(sample->frames - 1) ||
-                    voice->frames_left == 0) {
+                if (voice->pos >= (double)(sample->frames - 1)) {
                     voice->active = 0;
                     continue;
                 }
-                mix += (int)((float)sample_at(sample, voice->pos) * voice->gain);
+                if (voice->frames_left == 0) begin_release(voice);
+                mix += (int)((float)sample_at(sample, voice->pos) *
+                             voice->gain * voice_release_gain(voice));
                 voice->pos += voice->inc;
                 if (voice->frames_left > 0) voice->frames_left--;
+                advance_voice_release(voice);
             }
 
-            int16_t s = clip_i16(mix);
+            int16_t s = mix_to_i16(mix);
             block[f * 2] = s;
             block[f * 2 + 1] = s;
         }

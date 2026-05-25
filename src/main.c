@@ -4,6 +4,7 @@
 #include "editor.h"
 #include "perform.h"
 #include "file_io.h"
+#include "input.h"
 #include "stream.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -78,6 +79,21 @@ static int str_contains(const char *hay, const char *needle)
         if (ok) return 1;
     }
     return 0;
+}
+
+static int confirm_intro_quit(void)
+{
+    int pr = LINES / 2 - 1;
+    int pc = COLS / 2 - 18;
+    attron(COLOR_PAIR(4) | A_BOLD);
+    mvprintw(pr,   pc, "+------------------------------------+");
+    mvprintw(pr+1, pc, "|  Quit BashBeats?  (y)es  (n)o      |");
+    mvprintw(pr+2, pc, "+------------------------------------+");
+    attroff(COLOR_PAIR(4) | A_BOLD);
+    refresh();
+
+    int ch = getch();
+    return (ch == 'y' || ch == 'Y');
 }
 
 /* ── Intro screen ─────────────────────────────────────────────────────
@@ -159,7 +175,7 @@ static int show_intro(void)
 
         /* Filter box */
         attron(COLOR_PAIR(3));
-        mvprintw(brow, 2, "Search: [%-28s]  (Up/Dn:move  Enter:open  ^Q:quit)", query);
+        mvprintw(brow, 2, "Search: [%-28s]  (Up/Dn:move  Enter:open  Ctrl+C:quit)", query);
         attroff(COLOR_PAIR(3));
         brow++;
 
@@ -210,7 +226,7 @@ static int show_intro(void)
         /* Footer */
         attron(A_REVERSE);
         mvhline(LINES - 1, 0, ' ', COLS);
-        mvprintw(LINES - 1, 1, " Up/Down: navigate   Enter: open   Type to filter   ^Q: quit");
+        mvprintw(LINES - 1, 1, " Up/Down: navigate   Enter: open   Type to filter   Ctrl+C: quit");
         attroff(A_REVERSE);
 
         refresh();
@@ -218,9 +234,13 @@ static int show_intro(void)
         /* Input */
         int ch = getch();
 
-        if (ch == KEY_CTRL('q') || ch == KEY_CTRL('c')) {
-            endwin();
-            exit(0);
+        if (g_sigint_received || ch == KEY_CTRL_C) {
+            g_sigint_received = 0;
+            if (confirm_intro_quit()) {
+                endwin();
+                exit(0);
+            }
+            continue;
         }
 
         if (ch == KEY_UP   && sel > 0) { sel--; continue; }
@@ -233,9 +253,13 @@ static int show_intro(void)
             if (show_perf) { if (cur == sel) { result = 2; done = 1; break; } cur++; }
             for (int i = 0; i < nf; i++, cur++) {
                 if (cur == sel) {
-                    g_project = project_load(saves[fidx[i]]);
-                    if (g_project) { result = 1; done = 1; }
-                    else {
+                    Project *loaded = project_load(saves[fidx[i]]);
+                    if (loaded) {
+                        project_free(g_project);
+                        g_project = loaded;
+                        result = 1;
+                        done = 1;
+                    } else {
                         attron(COLOR_PAIR(4)|A_BOLD);
                         mvprintw(LINES-2, 2, "Load FAILED: %s  (press any key)", saves[fidx[i]]);
                         attroff(COLOR_PAIR(4)|A_BOLD);
@@ -287,6 +311,7 @@ int main(int argc, char *argv[])
         goto launch_daw;
     }
 
+intro_loop:
     /* ── Intro loop ────────────────────────────────────────────────
      * Re-enters when user presses ESC from performance mode.
      * Breaks out when user picks New / Load (goes to DAW).
@@ -302,7 +327,8 @@ int main(int argc, char *argv[])
                     register_cleanup_once();
                     if (audio_init(SAMPLES_DIR) != 0)
                         fprintf(stderr, "audio_init failed.\n");
-                    g_project = project_new(NULL); /* dummy for cleanup */
+                    if (!g_project)
+                        g_project = project_new(NULL); /* dummy for cleanup */
                     editor_init(g_project);         /* colour pairs etc. */
                     perf_ready = 1;
                 }
@@ -311,10 +337,12 @@ int main(int argc, char *argv[])
             }
 
             /* New project */
-            if (choice == 0 || g_project == NULL) {
-                char stub[128];
-                snprintf(stub, sizeof(stub), "%s/silent.wav", SAMPLES_DIR);
-                g_project = project_new(stub);
+            if (choice == 0) {
+                project_free(g_project);
+                g_project = NULL;
+            }
+            if (g_project == NULL) {
+                g_project = project_new(NULL);
                 if (!g_project) {
                     fprintf(stderr, "BashBeats: failed to create project.\n");
                     return 1;
@@ -342,13 +370,21 @@ launch_daw:
 
     {
         extern EditorState g_editor;
-        if (argc >= 2)
+        if (argc >= 2) {
             strncpy(g_editor.file_path, argv[1], sizeof(g_editor.file_path)-1);
-        else
+            g_editor.file_path[sizeof(g_editor.file_path)-1] = '\0';
+        } else {
             file_default_path(g_project->title, g_editor.file_path,
                               sizeof(g_editor.file_path));
+        }
     }
 
     g_project = editor_run(g_project);
+    if (g_editor.exit_to_intro) {
+        audio_stop();
+        stream_cleanup();
+        editor_cleanup();
+        goto intro_loop;
+    }
     return 0;
 }

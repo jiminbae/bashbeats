@@ -9,7 +9,7 @@
  * Entry point: run_performance_mode()
  *   Called from main() when the user selects Performance Mode on the
  *   intro screen. Runs its own ncurses event loop and returns when the
- *   user presses ESC or ^Q.
+ *   user presses ESC or Ctrl+C.
  * ─────────────────────────────────────────────────────────────────── */
 
 /* Start the performance mode loop (blocking). */

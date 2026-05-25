@@ -31,13 +31,13 @@ int  file_ensure_saves_dir(void);
  * Returns number of files found (0 if none or dir absent). */
 int  file_list_instruments(char out[][128], int max);
 
-/* Ensure a stub silent.wav exists so new projects always have a sample. */
+/* Ensure a fallback silent.wav exists for empty/missing sample sets. */
 void file_ensure_stub_instrument(void);
 
 /* Build the default save path: "saves/<title>.bbeat" into out (len bytes). */
 void file_default_path(const char *title, char *out, int len);
 
-Project *project_new (const char *instrument_path); /* NULL -> use stub */
+Project *project_new (const char *instrument_path); /* NULL -> use samples/piano.wav */
 Project *project_load(const char *path);
 int      project_save(const Project *p, const char *path);
 void     project_free(Project *p);

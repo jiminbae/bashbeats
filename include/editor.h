@@ -36,6 +36,9 @@ typedef struct {
 
     /* Track-mode playhead cursor */
     uint32_t play_cursor;
+
+    /* Exit editor and return to intro screen */
+    int exit_to_intro;
 } EditorState;
 
 /* Global editor state (defined in editor.c) */

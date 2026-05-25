@@ -9,6 +9,6 @@
  * so this function is a no-op stub that can be expanded later. */
 int input_dispatch(int ch)
 {
-    if (ch == KEY_CTRL_Q) return -1;
+    if (ch == KEY_CTRL_C) return -1;
     return 0;
 }

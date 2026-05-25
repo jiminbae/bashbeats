@@ -13,7 +13,7 @@
 #define KEY_CTRL_F   KEY_CTRL('f')   /* switch to FILE mode */
 #define KEY_CTRL_S   KEY_CTRL('s')   /* save (in FILE mode) */
 #define KEY_CTRL_T   KEY_CTRL('t')   /* switch to TRACK mode */
-#define KEY_CTRL_Q   KEY_CTRL('q')   /* quit */
+#define KEY_CTRL_C   KEY_CTRL('c')   /* quit */
 
 /* ── Editor modes ── */
 typedef enum {
