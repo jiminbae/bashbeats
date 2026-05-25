@@ -4,7 +4,7 @@ BashBeats is a terminal-based mini DAW (Digital Audio Workstation) written in C.
 It runs inside an `ncurses` interface, lets users create tracks, place notes in
 a piano-roll editor, and play songs using WAV sample instruments.
 
-This project is more than a UI-only demo. It includes:
+It includes:
 
 - Terminal-based DAW editor
 - Track creation, deletion, mute, and volume controls
@@ -192,9 +192,6 @@ the `samples/` directory and can be regenerated with
 | Jimin Bae | Core implementation: C application logic, editor features, audio integration, file I/O, and build setup |
 | Changwoo Ha | Planning and design: project concept, user workflow, terminal UI direction, and feature prioritization |
 
-The project was divided between implementation-focused work and
-planning/design-focused work so that the technical build and user experience
-could be developed together.
 
 ## Manual
 
