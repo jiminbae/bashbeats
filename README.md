@@ -1,190 +1,193 @@
 # BashBeats
 
-BashBeats는 터미널에서 실행되는 C 기반 미니 DAW(Digital Audio
-Workstation)입니다. `ncurses` 화면 안에서 트랙을 만들고, 피아노롤 방식으로
-노트를 찍고, WAV 샘플 악기를 이용해 곡을 재생할 수 있습니다.
+BashBeats is a terminal-based mini DAW (Digital Audio Workstation) written in C.
+It runs inside an `ncurses` interface, lets users create tracks, place notes in
+a piano-roll editor, and play songs using WAV sample instruments.
 
-단순한 UI 데모가 아니라 다음 기능을 포함합니다.
+This project is more than a UI-only demo. It includes:
 
-- 터미널 기반 DAW 에디터
-- 트랙 추가, 삭제, 음소거, 볼륨 조절
-- 피아노롤 노트 입력 및 삭제
-- BPM 변경과 재생 위치 이동
-- WAV 샘플 기반 악기 재생
-- 라이브 키보드 연주용 Performance Mode
-- `.bbeat` 프로젝트 저장 및 불러오기
-- WAV 파일 export
-- TCP PCM 스트리밍
+- Terminal-based DAW editor
+- Track creation, deletion, mute, and volume controls
+- Piano-roll note editing
+- BPM control and playback seeking
+- WAV sample-based instrument playback
+- Live keyboard Performance Mode
+- `.bbeat` project save and load support
+- WAV export
+- TCP PCM streaming
 
-## 프로젝트 구조
+## Project Layout
 
 ```text
 bashbeats/
-├── include/      헤더 파일
-├── src/          메인 프로그램, 에디터, 오디오 엔진 소스
-├── samples/      기본 WAV 악기 샘플
-├── saves/        예제 및 저장된 .bbeat 프로젝트
-├── tools/        샘플 생성 등 보조 스크립트
-├── docs/         상세 매뉴얼과 참고 문서
-├── Makefile      빌드 스크립트
+├── include/      Header files
+├── src/          Main program, editor, and audio engine sources
+├── samples/      Default WAV instrument samples
+├── saves/        Example and saved .bbeat projects
+├── tools/        Helper scripts
+├── docs/         Manual and reference documents
+├── Makefile      Build script
 └── README.md
 ```
 
-## 실행 환경
+## Requirements
 
-Ubuntu/Debian 기준으로 아래 패키지가 필요합니다.
+On Ubuntu/Debian, install the required packages with:
 
 ```bash
 sudo apt install build-essential libncurses-dev alsa-utils
 ```
 
-`alsa-utils`는 로컬 오디오 재생에 사용하는 `aplay`를 제공합니다. `aplay`가
-없어도 WAV export와 TCP 스트리밍은 동작하지만, 터미널에서 바로 소리를 들으려면
-설치하는 것을 권장합니다.
+`alsa-utils` provides `aplay`, which BashBeats uses for local audio playback.
+WAV export and TCP streaming do not require ALSA development headers, but
+installing `aplay` is recommended if you want to hear sound directly from the
+terminal application.
 
-## 빌드
+## Build
 
-기본 빌드는 실제 오디오 엔진을 포함합니다.
+Build BashBeats with the real audio engine:
 
 ```bash
 make
 ```
 
-오디오 없이 UI 동작만 확인하고 싶다면 stub 빌드를 사용할 수 있습니다.
+Build a UI-only version with the audio stub:
 
 ```bash
 make stub
 ```
 
-기본 샘플 WAV 파일을 다시 생성하려면 다음 명령을 사용합니다.
+Regenerate the default WAV sample files:
 
 ```bash
 make samples
 ```
 
-빌드 결과물을 지우려면 다음 명령을 사용합니다.
+Remove build output:
 
 ```bash
 make clean
 ```
 
-## 실행 방법
+## Run
 
-프로젝트 루트에서 실행합니다.
+Run BashBeats from the project root:
 
 ```bash
 ./bashbeats
 ```
 
-저장된 프로젝트를 바로 열 수도 있습니다.
+Open a saved project directly:
 
 ```bash
 ./bashbeats saves/full_band_demo.bbeat
 ```
 
-처음 실행하면 인트로 화면에서 새 프로젝트, Performance Mode, 저장된 `.bbeat`
-파일 중 하나를 선택할 수 있습니다.
+When the program starts, the intro screen lets you create a new project, enter
+Performance Mode, or open an existing `.bbeat` file.
 
-## 빠른 사용법
+## Quick Controls
 
-### 인트로 화면
+### Intro Screen
 
-- `Up` / `Down`: 항목 이동
-- `Enter`: 선택
-- 텍스트 입력: 저장 파일 검색
-- `Backspace`: 검색어 삭제
-- `Ctrl+C`: 종료 확인
+- `Up` / `Down`: Move selection
+- `Enter`: Open selected item
+- Type text: Filter saved project files
+- `Backspace`: Delete one search character
+- `Ctrl+C`: Show quit confirmation
 
-### TRACK 모드
+### TRACK Mode
 
-TRACK 모드는 전체 트랙을 관리하는 화면입니다.
+TRACK mode is the main project overview where tracks are managed.
 
-- `Enter`: 선택한 트랙을 EDIT 모드로 열기
-- `Space`: 재생 / 일시정지
-- `Up` / `Down`: 트랙 선택
-- `Left` / `Right`: 재생 위치 이동
-- `a`: 트랙 추가
-- `d`: 트랙 삭제
-- `i`: 악기 변경
-- `b`: 기준 음 변경
-- `m`: 음소거 토글
-- `+` / `-`: 볼륨 조절
-- `Esc`: 인트로 화면으로 돌아가기
-- `Ctrl+F`: FILE 모드
-- `Ctrl+C`: 종료 확인
+- `Enter`: Open the selected track in EDIT mode
+- `Space`: Play / pause
+- `Up` / `Down`: Select track
+- `Left` / `Right`: Move playback position
+- `a`: Add track
+- `d`: Delete track
+- `i`: Change instrument
+- `b`: Change base note
+- `m`: Toggle mute
+- `+` / `-`: Adjust volume
+- `Esc`: Return to intro screen
+- `Ctrl+F`: Open FILE mode
+- `Ctrl+C`: Show quit confirmation
 
-### EDIT 모드
+### EDIT Mode
 
-EDIT 모드는 피아노롤처럼 노트를 입력하는 화면입니다.
+EDIT mode is the piano-roll note editor.
 
-- `Arrow keys`: 커서 이동
-- `Enter`: 현재 위치에 노트 입력 또는 토글
-- `Delete`: 현재 위치의 노트 삭제
-- `Space`: 현재 커서 위치부터 재생 / 일시정지
-- `[` / `]`: 편집 트랙 이동
-- `+` / `-`: BPM 조절
-- `,` 다음 `.`: 긴 노트 입력 범위 지정
-- `Esc`: TRACK 모드로 돌아가기
-- `Ctrl+F`: FILE 모드
-- `Ctrl+C`: 종료 확인
+- `Arrow keys`: Move cursor
+- `Enter`: Add or toggle a note at the cursor
+- `Delete`: Remove a note at the cursor
+- `Space`: Play from the current cursor position / pause
+- `[` / `]`: Switch editing track
+- `+` / `-`: Adjust BPM
+- `,` then `.`: Create a longer note range
+- `Esc`: Return to TRACK mode
+- `Ctrl+F`: Open FILE mode
+- `Ctrl+C`: Show quit confirmation
 
-재생 중 방향키로 위치를 조정하면 재생이 일시정지되고, 현재 울리던 소리를 정리한
-뒤 새 위치에 맞춰 다시 시작할 수 있습니다.
+If you move the cursor while playback is running, BashBeats pauses playback,
+clears currently sounding notes, and retimes playback to the new cursor
+position. Press `Space` again to continue from that point.
 
-### FILE 모드
+### FILE Mode
 
-FILE 모드는 프로젝트 저장, 불러오기, 제목 변경, WAV export를 담당합니다.
+FILE mode handles project file actions.
 
-- `S`: 저장
-- `L`: 저장된 `.bbeat` 파일 불러오기
-- `N`: 새 프로젝트 만들기
-- `R`: 저장 경로 변경
-- `T`: 프로젝트 제목 변경
-- `E`: WAV 파일로 export
-- `Esc`: TRACK 모드로 돌아가기
-- `Ctrl+C`: 종료 확인
+- `S`: Save project
+- `L`: Load a saved `.bbeat` project
+- `N`: Create a new project
+- `R`: Change save path
+- `T`: Change project title
+- `E`: Export as WAV
+- `Esc`: Return to TRACK mode
+- `Ctrl+C`: Show quit confirmation
 
 ### Performance Mode
 
-Performance Mode는 컴퓨터 키보드로 악기를 직접 연주하는 모드입니다.
+Performance Mode turns the computer keyboard into a playable instrument.
 
-- `z x c v b n m`: 낮은 옥타브 흰 건반
-- `s d g h j`: 낮은 옥타브 검은 건반
-- `q w e r t y u`: 높은 옥타브 흰 건반
-- `2 3 5 6 7`: 높은 옥타브 검은 건반
-- `Up` / `Down`: 옥타브 변경
-- `i`: 악기 변경
-- `Esc`: 인트로 화면으로 돌아가기
-- `Ctrl+C`: 종료 확인
+- `z x c v b n m`: Lower octave white keys
+- `s d g h j`: Lower octave black keys
+- `q w e r t y u`: Upper octave white keys
+- `2 3 5 6 7`: Upper octave black keys
+- `Up` / `Down`: Change octave
+- `i`: Change instrument
+- `Esc`: Return to intro screen
+- `Ctrl+C`: Show quit confirmation
 
-## 예제 프로젝트
+## Example Projects
 
-`saves/` 폴더에는 테스트용 프로젝트와 데모 프로젝트가 들어 있습니다.
+The `saves/` directory includes test projects and demo songs.
 
-- `saves/full_band_demo.bbeat`: 모든 기본 악기를 포함한 데모 곡
-- `saves/testver23.bbeat`: 기존 테스트 프로젝트
-- `saves/testbashb.bbeat`: 기존 테스트 프로젝트
-- `saves/Untitled.bbeat`: 기본 저장 예제
+- `saves/full_band_demo.bbeat`: Demo song using all default instruments
+- `saves/testver23.bbeat`: Existing test project
+- `saves/testbashb.bbeat`: Existing test project
+- `saves/Untitled.bbeat`: Basic saved project example
 
-전체 악기 소리를 확인하려면 다음처럼 실행하면 됩니다.
+To hear the full-band demo:
 
 ```bash
 make
 ./bashbeats saves/full_band_demo.bbeat
 ```
 
-## 파일 형식
+## File Format
 
-BashBeats는 자체 텍스트 기반 프로젝트 파일인 `.bbeat`를 사용합니다. 이 파일에는
-프로젝트 제목, BPM, 트랙 목록, 악기 경로, 볼륨, 음소거 상태, 노트 이벤트가
-저장됩니다.
+BashBeats uses its own text-based `.bbeat` project format. A project file stores
+the project title, BPM, track list, instrument paths, volume, mute state, and
+note events.
 
-샘플 악기는 16-bit PCM WAV 파일을 사용합니다. 기본 샘플은 `samples/` 폴더에
-포함되어 있으며, `tools/generate_samples.py`로 다시 생성할 수 있습니다.
+Instrument samples are 16-bit PCM WAV files. Default samples are included in
+the `samples/` directory and can be regenerated with
+`tools/generate_samples.py`.
 
-## 개발자
+## Developers
 
-| 이름 | 담당 역할 |
+| Name | Role |
 |---|---|
 | Jimin Bae | Core implementation: C application logic, editor features, audio integration, file I/O, and build setup |
 | Changwoo Ha | Planning and design: project concept, user workflow, terminal UI direction, and feature prioritization |
@@ -193,6 +196,6 @@ The project was divided between implementation-focused work and
 planning/design-focused work so that the technical build and user experience
 could be developed together.
 
-## 상세 매뉴얼
+## Manual
 
-더 자세한 조작법은 [docs/MANUAL.md](docs/MANUAL.md)를 참고하세요.
+See [docs/MANUAL.md](docs/MANUAL.md) for the full user manual.
