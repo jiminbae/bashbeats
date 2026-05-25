@@ -1,31 +1,31 @@
-CC     = gcc
-CFLAGS = -Wall -Wextra -pthread -g
-LIBS   = -lm -lasound -lncurses
-TARGET = bashbeats
+CC      = gcc
+CFLAGS  = -Wall -Wextra -pthread -g -Iinclude
+LIBS    = -lm -lncurses
+TARGET  = bashbeats
 
-# Full build (audio engine implemented)
-SRCS_FULL = main.c data.c audio.c sampler.c \
-            stream.c file_io.c editor.c piano.c input.c perform.c
+SRCS_FULL = src/main.c src/data.c src/audio.c src/stream.c src/file_io.c \
+            src/editor.c src/piano.c src/input.c src/perform.c
 
-# Stub build (week 1: audio engine not yet implemented)
-SRCS_STUB = main.c data.c audio_stub.c \
-            stream.c file_io.c editor.c piano.c input.c perform.c
+SRCS_STUB = src/main.c src/data.c src/audio_stub.c src/stream.c src/file_io.c \
+            src/editor.c src/piano.c src/input.c src/perform.c
 
-# Default: stub build for independent development
-all: stub
-
-stub:
-	$(CC) $(CFLAGS) -o $(TARGET) $(SRCS_STUB) -lm -lncurses -lpthread
-	@echo "Built with audio_stub.c — debug output goes to /tmp/bashbeats.log"
+all: full
 
 full:
 	$(CC) $(CFLAGS) -o $(TARGET) $(SRCS_FULL) $(LIBS)
+	@echo "Built $(TARGET) with the real audio engine"
+
+stub:
+	$(CC) $(CFLAGS) -o $(TARGET) $(SRCS_STUB) $(LIBS)
+	@echo "Built $(TARGET) with audio_stub.c"
+
+samples:
+	python3 tools/generate_samples.py
 
 clean:
 	rm -f $(TARGET)
 
-# View audio stub debug log (run in another terminal)
 log:
 	tail -f /tmp/bashbeats.log
 
-.PHONY: all stub full clean log
+.PHONY: all full stub samples clean log

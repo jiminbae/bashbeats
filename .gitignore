@@ -1,0 +1,9 @@
+bashbeats
+*.o
+*.dSYM/
+*.dSYM.zip
+*.raw
+*.wav.tmp
+export.wav
+session.daw
+.DS_Store
