@@ -1,0 +1,119 @@
+# BashBeats project file
+TITLE canon_in_C
+BPM 120
+
+TRACK 0
+  NAME   Track 1
+  INSTR samples/piano.wav
+  BASE  60
+  VOL   1.00
+  MUTE  0
+  # start_tick  note  duration_tick  velocity
+  0  64  16  80
+  0  60  16  80
+  16  62  16  80
+  16  59  16  80
+  32  60  16  80
+  32  57  16  80
+  48  59  16  80
+  48  55  16  80
+  64  57  16  80
+  64  53  16  80
+  80  55  16  80
+  80  52  16  80
+  96  53  16  80
+  96  57  16  80
+  112  59  16  80
+  112  55  16  80
+END
+
+TRACK 1
+  NAME   Track2
+  INSTR samples/Alesis-Fusion-Acoustic-Bass-C2.wav
+  BASE  36
+  VOL   1.00
+  MUTE  0
+  # start_tick  note  duration_tick  velocity
+  0  36  4  80
+  4  40  4  80
+  8  43  4  80
+  16  31  4  80
+  20  38  4  80
+  24  43  4  80
+  32  33  4  80
+  36  40  4  80
+  40  45  4  80
+  48  28  4  80
+  52  35  4  80
+  56  40  4  80
+  64  29  4  80
+  68  36  4  80
+  72  41  4  80
+  80  24  4  80
+  84  31  4  80
+  88  36  4  80
+  96  29  4  80
+  100  36  4  80
+  104  41  4  80
+  112  31  4  80
+  116  38  4  80
+  120  43  4  80
+END
+
+TRACK 2
+  NAME   Track3
+  INSTR samples/snare.wav
+  BASE  60
+  VOL   1.00
+  MUTE  0
+  # start_tick  note  duration_tick  velocity
+  0  60  1  80
+  4  60  1  80
+  8  60  1  80
+  12  60  1  80
+  16  60  1  80
+  20  60  1  80
+  24  60  1  80
+  28  60  1  80
+  32  60  1  80
+  36  60  1  80
+  40  60  1  80
+  44  60  1  80
+  48  60  1  80
+  52  60  1  80
+  56  60  1  80
+  60  60  1  80
+  64  60  1  80
+  68  60  1  80
+  72  60  1  80
+  76  60  1  80
+  80  60  1  80
+  84  60  1  80
+  88  60  1  80
+  92  60  1  80
+  96  60  1  80
+  100  60  1  80
+  104  60  1  80
+  108  60  1  80
+  112  60  1  80
+  116  60  1  80
+  120  60  1  80
+  124  60  1  80
+END
+
+TRACK 3
+  NAME  Track4
+  INSTR samples/kick.wav
+  BASE  -1
+  VOL   1.00
+  MUTE  0
+  # start_tick  note  duration_tick  velocity
+  0  48  4  80
+  16  48  4  80
+  32  48  4  80
+  48  48  4  80
+  64  48  4  80
+  80  48  4  80
+  96  48  4  80
+  112  48  4  80
+END
