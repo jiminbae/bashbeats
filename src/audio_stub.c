@@ -58,6 +58,11 @@ int audio_init(const char *sample_dir)
     return 0;
 }
 
+void audio_set_local_output(int enabled)
+{
+    fprintf(stderr, "[audio_stub] local_output=%s\n", enabled ? "on" : "off");
+}
+
 void audio_cleanup(void)
 {
     s_running = 0;

@@ -7,6 +7,7 @@
 /* ── Init / Cleanup ── */
 int  audio_init   (const char *sample_dir); /* 0=success, -1=fail */
 void audio_cleanup(void);
+void audio_set_local_output(int enabled);
 
 /* ── Per-track instrument loading ──
  * Called whenever a track's instrument path changes.

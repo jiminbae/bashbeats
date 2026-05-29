@@ -27,10 +27,26 @@
 
 # 프로젝트 파일을 직접 열어서 시작
 ./bashbeats saves/mysong.bbeat
+
+# 별도 TCP 클라이언트로만 소리 듣기
+./bashbeats --audio=stream
+nc 127.0.0.1 9000 | aplay -f S16_LE -r 44100 -c 2
 ```
 
 > **터미널 크기**: 140×35 이상을 권장합니다.  
 > 실행 시 자동으로 터미널 크기를 조정하지만, 지원하지 않는 터미널에서는 수동으로 크기를 맞춰주세요.
+
+**오디오 출력 옵션**
+
+| 옵션 | 동작 |
+|---|---|
+| `--audio=auto` | 기본값. 로컬 `aplay` 출력, DAW 모드에서는 TCP 스트리밍도 함께 활성화 |
+| `--audio=local` | 로컬 `aplay` 출력만 사용 |
+| `--audio=stream` | 로컬 출력 없이 TCP 스트리밍만 사용 |
+| `--audio=both` | 로컬 출력과 TCP 스트리밍을 모두 사용 |
+| `--audio=none` | 실시간 출력 없음. WAV export는 사용 가능 |
+
+TCP 포트는 `--stream-port=9001`처럼 변경할 수 있습니다.
 
 ---
 

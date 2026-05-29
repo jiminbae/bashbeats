@@ -83,6 +83,24 @@ Open a saved project directly:
 ./bashbeats saves/full_band_demo.bbeat
 ```
 
+Choose the live audio output mode:
+
+```bash
+# Default: local aplay output; DAW mode also opens TCP streaming
+./bashbeats --audio=auto
+
+# Play through a separate TCP client only
+./bashbeats --audio=stream
+nc 127.0.0.1 9000 | aplay -f S16_LE -r 44100 -c 2
+
+# Local-only, both, or no live output
+./bashbeats --audio=local
+./bashbeats --audio=both
+./bashbeats --audio=none
+```
+
+Use `--stream-port=N` to change the TCP streaming port.
+
 When the program starts, the intro screen lets you create a new project, enter
 Performance Mode, or open an existing `.bbeat` file.
 

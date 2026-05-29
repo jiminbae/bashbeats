@@ -14,7 +14,15 @@
 #include <signal.h>
 #include <ncurses.h>
 
-#define STREAM_PORT 9000
+#define DEFAULT_STREAM_PORT 9000
+
+typedef enum {
+    AUDIO_OUTPUT_AUTO = 0,
+    AUDIO_OUTPUT_LOCAL,
+    AUDIO_OUTPUT_STREAM,
+    AUDIO_OUTPUT_BOTH,
+    AUDIO_OUTPUT_NONE
+} AudioOutputMode;
 
 /* ── Global quit-request flag (set by SIGINT handler) ── */
 volatile sig_atomic_t g_sigint_received = 0;
@@ -27,6 +35,9 @@ static void sigint_handler(int sig)
 
 static Project *g_project = NULL;
 static int g_cleanup_registered = 0;
+static AudioOutputMode g_audio_output_mode = AUDIO_OUTPUT_AUTO;
+static int g_stream_port = DEFAULT_STREAM_PORT;
+static int g_stream_started = 0;
 
 static void cleanup(void);
 
@@ -45,6 +56,147 @@ static void cleanup(void)
     stream_cleanup();
     project_free(g_project);
     g_project = NULL;
+}
+
+static void print_usage(const char *prog)
+{
+    fprintf(stderr,
+            "Usage: %s [options] [project.bbeat]\n"
+            "\n"
+            "Options:\n"
+            "  --audio=auto|local|stream|both|none\n"
+            "      auto   : local aplay output; DAW mode also opens TCP stream (default)\n"
+            "      local  : local aplay output only\n"
+            "      stream : TCP stream only; listen with: nc <host> <port> | aplay -f S16_LE -r 44100 -c 2\n"
+            "      both   : local aplay output and TCP stream\n"
+            "      none   : no live audio output; WAV export still works\n"
+            "  --stream-port=N\n"
+            "      TCP stream port (default: %d)\n"
+            "  -h, --help\n"
+            "      Show this help\n",
+            prog, DEFAULT_STREAM_PORT);
+}
+
+static int parse_audio_mode(const char *value, AudioOutputMode *mode)
+{
+    if (strcmp(value, "auto") == 0) {
+        *mode = AUDIO_OUTPUT_AUTO;
+    } else if (strcmp(value, "local") == 0) {
+        *mode = AUDIO_OUTPUT_LOCAL;
+    } else if (strcmp(value, "stream") == 0) {
+        *mode = AUDIO_OUTPUT_STREAM;
+    } else if (strcmp(value, "both") == 0) {
+        *mode = AUDIO_OUTPUT_BOTH;
+    } else if (strcmp(value, "none") == 0 || strcmp(value, "silent") == 0) {
+        *mode = AUDIO_OUTPUT_NONE;
+    } else {
+        return -1;
+    }
+    return 0;
+}
+
+static int parse_port(const char *value, int *port)
+{
+    char *end = NULL;
+    long n = strtol(value, &end, 10);
+    if (!value[0] || *end != '\0' || n < 1 || n > 65535)
+        return -1;
+    *port = (int)n;
+    return 0;
+}
+
+static int audio_mode_wants_local(void)
+{
+    return g_audio_output_mode == AUDIO_OUTPUT_AUTO ||
+           g_audio_output_mode == AUDIO_OUTPUT_LOCAL ||
+           g_audio_output_mode == AUDIO_OUTPUT_BOTH;
+}
+
+static int audio_mode_wants_stream(int daw_mode)
+{
+    if (g_audio_output_mode == AUDIO_OUTPUT_AUTO)
+        return daw_mode;
+    return g_audio_output_mode == AUDIO_OUTPUT_STREAM ||
+           g_audio_output_mode == AUDIO_OUTPUT_BOTH;
+}
+
+static void ensure_stream_started(void)
+{
+    if (g_stream_started) return;
+    if (stream_init(g_stream_port) != 0) {
+        fprintf(stderr, "stream_init failed — streaming disabled.\n");
+        return;
+    }
+    g_stream_started = 1;
+}
+
+static void stop_stream(void)
+{
+    stream_cleanup();
+    g_stream_started = 0;
+}
+
+static int parse_args(int argc, char *argv[], const char **project_path)
+{
+    *project_path = NULL;
+    for (int i = 1; i < argc; i++) {
+        const char *arg = argv[i];
+
+        if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0) {
+            print_usage(argv[0]);
+            return 1;
+        }
+
+        if (strncmp(arg, "--audio=", 8) == 0) {
+            if (parse_audio_mode(arg + 8, &g_audio_output_mode) != 0) {
+                fprintf(stderr, "BashBeats: invalid audio mode '%s'\n", arg + 8);
+                print_usage(argv[0]);
+                return -1;
+            }
+            continue;
+        }
+
+        if (strcmp(arg, "--audio") == 0) {
+            if (++i >= argc || parse_audio_mode(argv[i], &g_audio_output_mode) != 0) {
+                fprintf(stderr, "BashBeats: --audio needs auto, local, stream, both, or none\n");
+                print_usage(argv[0]);
+                return -1;
+            }
+            continue;
+        }
+
+        if (strncmp(arg, "--stream-port=", 14) == 0) {
+            if (parse_port(arg + 14, &g_stream_port) != 0) {
+                fprintf(stderr, "BashBeats: invalid stream port '%s'\n", arg + 14);
+                print_usage(argv[0]);
+                return -1;
+            }
+            continue;
+        }
+
+        if (strcmp(arg, "--stream-port") == 0) {
+            if (++i >= argc || parse_port(argv[i], &g_stream_port) != 0) {
+                fprintf(stderr, "BashBeats: --stream-port needs a value from 1 to 65535\n");
+                print_usage(argv[0]);
+                return -1;
+            }
+            continue;
+        }
+
+        if (arg[0] == '-') {
+            fprintf(stderr, "BashBeats: unknown option '%s'\n", arg);
+            print_usage(argv[0]);
+            return -1;
+        }
+
+        if (*project_path) {
+            fprintf(stderr, "BashBeats: only one project file can be opened at a time\n");
+            print_usage(argv[0]);
+            return -1;
+        }
+        *project_path = arg;
+    }
+    return 0;
 }
 
 /* ── ASCII art banner ────────────────────────────────────────────────
@@ -296,16 +448,23 @@ static int show_intro(void)
 
 int main(int argc, char *argv[])
 {
+    const char *project_path = NULL;
+    int parse_result = parse_args(argc, argv, &project_path);
+    if (parse_result > 0) return 0;
+    if (parse_result < 0) return 1;
+
     signal(SIGINT, sigint_handler);   /* Ctrl+C → set flag, not hard exit */
 
     file_ensure_saves_dir();
     file_ensure_stub_instrument();
 
-    if (argc >= 2) {
+    audio_set_local_output(audio_mode_wants_local());
+
+    if (project_path) {
         /* Direct file argument: skip intro, go straight to DAW */
-        g_project = project_load(argv[1]);
+        g_project = project_load(project_path);
         if (!g_project) {
-            fprintf(stderr, "BashBeats: failed to load '%s'\n", argv[1]);
+            fprintf(stderr, "BashBeats: failed to load '%s'\n", project_path);
             return 1;
         }
         goto launch_daw;
@@ -325,6 +484,8 @@ intro_loop:
                 /* Performance mode */
                 if (!perf_ready) {
                     register_cleanup_once();
+                    if (audio_mode_wants_stream(0))
+                        ensure_stream_started();
                     if (audio_init(SAMPLES_DIR) != 0)
                         fprintf(stderr, "audio_init failed.\n");
                     if (!g_project)
@@ -363,15 +524,15 @@ launch_daw:
     for (int i = 0; i < g_project->track_count; i++)
         audio_load_instrument(i, g_project->tracks[i].instrument);
 
-    if (stream_init(STREAM_PORT) != 0)
-        fprintf(stderr, "stream_init failed — streaming disabled.\n");
+    if (audio_mode_wants_stream(1))
+        ensure_stream_started();
 
     editor_init(g_project);
 
     {
         extern EditorState g_editor;
-        if (argc >= 2) {
-            strncpy(g_editor.file_path, argv[1], sizeof(g_editor.file_path)-1);
+        if (project_path) {
+            strncpy(g_editor.file_path, project_path, sizeof(g_editor.file_path)-1);
             g_editor.file_path[sizeof(g_editor.file_path)-1] = '\0';
         } else {
             file_default_path(g_project->title, g_editor.file_path,
@@ -382,7 +543,7 @@ launch_daw:
     g_project = editor_run(g_project);
     if (g_editor.exit_to_intro) {
         audio_stop();
-        stream_cleanup();
+        stop_stream();
         editor_cleanup();
         goto intro_loop;
     }

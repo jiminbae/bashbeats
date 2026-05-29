@@ -57,6 +57,7 @@ static uint32_t s_tick = 0;         /* next tick to render */
 static uint32_t s_display_tick = 0; /* last tick rendered, used by the UI */
 static double s_frames_to_next_tick = 0.0;
 static FILE *s_aplay = NULL;
+static int s_local_output_enabled = 1;
 
 static uint16_t read_u16_le(const unsigned char *p)
 {
@@ -347,6 +348,7 @@ static void close_aplay(void)
 
 static void open_aplay(void)
 {
+    if (!s_local_output_enabled) return;
     if (s_aplay) return;
     s_aplay = popen("aplay -q -f S16_LE -c 2 -r 44100 -B 20000 -F 5000 2>/tmp/bashbeats_aplay.err", "w");
     if (!s_aplay) {
@@ -354,6 +356,13 @@ static void open_aplay(void)
     } else {
         setvbuf(s_aplay, NULL, _IONBF, 0);
     }
+}
+
+void audio_set_local_output(int enabled)
+{
+    s_local_output_enabled = enabled ? 1 : 0;
+    if (!s_local_output_enabled)
+        close_aplay();
 }
 
 static void *audio_thread(void *arg)
