@@ -48,13 +48,15 @@ static pthread_mutex_t s_audio_mtx = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t s_thread;
 static int s_thread_started = 0;
 static volatile int s_running = 0;
+static uint32_t project_last_tick(const Project *p);
 
 static Project *s_project = NULL;
 static int s_playing = 0;
 static int s_paused = 0;
 static int s_bpm = 120;
-static uint32_t s_tick = 0;         /* next tick to render */
-static uint32_t s_display_tick = 0; /* last tick rendered, used by the UI */
+static uint32_t s_tick = 0;             /* next tick to render */
+static uint32_t s_display_tick = 0;     /* last tick rendered, used by the UI */
+static uint32_t s_last_tick_cache = 16; /* project end tick, cached at play() */
 static double s_frames_to_next_tick = 0.0;
 static FILE *s_aplay = NULL;
 static int s_local_output_enabled = 1;
@@ -239,7 +241,7 @@ static void trigger_voice_locked(int track, int note, float gain, uint32_t durat
     double pitch = pow(2.0, semitone / 12.0);
     double resample = (double)s_slots[track].sample.sample_rate / (double)AUDIO_SAMPLE_RATE;
     int64_t frames_left = -1;
-    if (duration_ticks > 1) {
+    if (duration_ticks > 0) {
         frames_left = (int64_t)(duration_ticks * frames_per_tick(s_bpm));
     }
 
@@ -305,12 +307,18 @@ static void render_live_block(int16_t *out, int frames)
     for (int f = 0; f < frames; f++) {
         if (s_playing && !s_paused && s_project) {
             if (s_frames_to_next_tick <= 0.0) {
-                fire_project_tick_locked(s_tick);
-                s_display_tick = s_tick;
-                s_tick++;
-                s_frames_to_next_tick += frames_per_tick(s_bpm);
+                if (s_tick >= s_last_tick_cache) {
+                    /* Reached end of composition — stop */
+                    s_playing = 0;
+                    s_display_tick = s_last_tick_cache;
+                } else {
+                    fire_project_tick_locked(s_tick);
+                    s_display_tick = s_tick;
+                    s_tick++;
+                    s_frames_to_next_tick += frames_per_tick(s_bpm);
+                }
             }
-            s_frames_to_next_tick -= 1.0;
+            if (s_playing) s_frames_to_next_tick -= 1.0;
         }
 
         int mix = 0;
@@ -411,10 +419,20 @@ int audio_init(const char *sample_dir)
     pthread_mutex_unlock(&s_audio_mtx);
 
     open_aplay();
-    if (pthread_create(&s_thread, NULL, audio_thread, NULL) != 0) {
-        s_running = 0;
-        close_aplay();
-        return -1;
+    /* Block SIGINT in the audio thread so the signal is always
+     * delivered to the main thread, not stolen by the audio thread. */
+    {
+        sigset_t mask, oldmask;
+        sigemptyset(&mask);
+        sigaddset(&mask, SIGINT);
+        pthread_sigmask(SIG_BLOCK, &mask, &oldmask);
+        int rc = pthread_create(&s_thread, NULL, audio_thread, NULL);
+        pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
+        if (rc != 0) {
+            s_running = 0;
+            close_aplay();
+            return -1;
+        }
     }
     s_thread_started = 1;
     fprintf(stderr, "[audio] engine ready (44100 Hz stereo)\n");
@@ -480,6 +498,18 @@ void audio_note_on(int track_idx, int note, float vol)
     pthread_mutex_unlock(&s_audio_mtx);
 }
 
+void audio_note_on_dur(int track_idx, int note, float vol, uint32_t dur_ticks)
+{
+    if (note < 0 || note > 127) return;
+    if (track_idx < 0 || track_idx >= MAX_TRACKS) track_idx = 0;
+    if (vol < 0.0f) vol = 0.0f;
+    if (vol > 1.5f) vol = 1.5f;
+
+    pthread_mutex_lock(&s_audio_mtx);
+    trigger_voice_locked(track_idx, note, vol, dur_ticks);
+    pthread_mutex_unlock(&s_audio_mtx);
+}
+
 void audio_note_off(int track_idx, int note)
 {
     pthread_mutex_lock(&s_audio_mtx);
@@ -503,6 +533,7 @@ void audio_play(Project *p)
     s_paused = 0;
     s_frames_to_next_tick = 0.0;
     s_display_tick = s_tick;
+    s_last_tick_cache = project_last_tick(p);
     memset(s_voices, 0, sizeof(s_voices));
     pthread_mutex_unlock(&s_audio_mtx);
 }
@@ -621,7 +652,7 @@ static void offline_trigger(Voice *voices, WavSample *samples, const Project *p,
     double pitch = pow(2.0, (double)(note - base_note) / 12.0);
     double resample = (double)samples[track].sample_rate / (double)AUDIO_SAMPLE_RATE;
     int64_t frames_left = -1;
-    if (duration_ticks > 1) {
+    if (duration_ticks > 0) {
         frames_left = (int64_t)(duration_ticks * frames_per_tick(p->bpm));
     }
 

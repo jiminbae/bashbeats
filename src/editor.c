@@ -21,7 +21,7 @@
 
 /* ── Layout constants ── */
 #define HEADER_ROWS     3
-#define HELP_ROWS       2   /* 1 help + 1 status */
+#define HELP_ROWS       3   /* 2 help + 1 status */
 #define TRACK_COLS      11
 #define NOTE_LABEL_COLS 5
 #define TICK_COL_WIDTH  3
@@ -36,6 +36,7 @@ static void handle_edit_key  (int ch, Project *p);
 static void handle_file_key  (int ch, Project **pp);
 static int  pick_instrument  (char out[128]);
 static int  pick_base_note   (void);
+static int  pick_transpose   (void);
 static int  pick_savefile    (char out[256]);
 static void prompt_string    (const char *prompt, char *out, int maxlen);
 
@@ -84,6 +85,8 @@ void editor_init(Project *p)
     g_editor.cur_note         = p->tracks[0].base_note;
     g_editor.cur_track        = 0;
     g_editor.view_tick_start  = 0;
+    g_editor.view_note_top    = (p->tracks[0].base_note >= 0)
+                                ? p->tracks[0].base_note + 11 : 59;
     g_editor.span_active      = 0;
     g_editor.play_cursor      = 0;
     g_editor.exit_to_intro    = 0;
@@ -105,7 +108,7 @@ void editor_cleanup(void)
 
 static int visible_tick_cols(void)
 {
-    int w = COLS - NOTE_LABEL_COLS - TRACK_COLS;
+    int w = COLS - NOTE_LABEL_COLS;
     if (w < 1) w = 1;
     return w / TICK_COL_WIDTH;
 }
@@ -139,6 +142,8 @@ void editor_draw_header(const Project *p)
              audio_is_playing() ? "[PLAYING]" :
              audio_is_paused()  ? "[PAUSED] " : "[STOPPED]");
     mvprintw(0, 69, "| Cli:%-2d", stream_clients());
+    if (g_editor.mode == MODE_EDIT)
+        mvprintw(0, 79, "| %.30s", p->tracks[g_editor.cur_track].name);
     attroff(COLOR_PAIR(8) | A_BOLD);
 
     attron(COLOR_PAIR(1));
@@ -150,43 +155,43 @@ void editor_draw_header(const Project *p)
 /* ── Help bar ── */
 void editor_draw_help(void)
 {
-    int hr = LINES - HELP_ROWS;
-    const char *help = "";
+    int hr = LINES - HELP_ROWS;   /* row for first help line */
+    const char *help1 = "";
+    const char *help2 = "";
+
     attron(A_REVERSE);
-    mvhline(hr, 0, ' ', COLS);
+    mvhline(hr,     0, ' ', COLS);
+    mvhline(hr + 1, 0, ' ', COLS);
+    attroff(A_REVERSE);
 
     switch (g_editor.mode) {
     case MODE_TRACK:
-        help = "Track  Enter:edit  Space:play/pause  ESC:intro  ^F:file  Ctrl+C:quit | Up/Dn:track  Left/Right:seek  a:add  d:del  i:instr  b:base  m:mute";
+        help1 = "Track  Enter:edit  Space:play/pause  ESC:intro  ^F:file  Ctrl+C:quit";
+        help2 = "       Up/Dn:track  L/R:seek  0:start  a:add  c:dup  d:del  n:rename  i:instr  b:base  m:mute  ,/.BPM  +/-vol";
         break;
     case MODE_EDIT:
-        help = "Edit  Arrows:move  Space:play/pause  Enter:note  ESC:tracks | , then .:long note  Del:erase  [/]:track  +/-:BPM  ^F:file  Ctrl+C:quit";
+        help1 = "Edit  Arrows:move  Space:play/pause  Enter:note  ESC:tracks";
+        help2 = "      , then .:long note  Del:erase  [/]:track  +/-:BPM  0:start  ^F:file  Ctrl+C:quit";
         break;
     case MODE_FILE:
-        help = "File  S:save  L:load  N:new  R:path  T:title  E:export wav  ESC:tracks  Ctrl+C:quit";
+        help1 = "File  S:save  L:load  N:new  R:path  T:title  E:export wav  ESC:back  Ctrl+C:quit";
         break;
     default:
         break;
     }
-    mvprintw(hr, 0, "%-*.*s", COLS - 1, COLS - 1, help);
+
+    attron(A_REVERSE);
+    mvprintw(hr,     0, "%-*.*s", COLS - 1, COLS - 1, help1);
+    mvprintw(hr + 1, 0, "%-*.*s", COLS - 1, COLS - 1, help2);
     attroff(A_REVERSE);
 
     /* Status line */
     attron(COLOR_PAIR(3));
-    mvprintw(hr + 1, 0, " %-*.*s", COLS-2, COLS-2, g_editor.status_msg);
+    mvprintw(hr + 2, 0, " %-*.*s", COLS-2, COLS-2, g_editor.status_msg);
     attroff(COLOR_PAIR(3));
 }
 
-/* ── Volume bar ── */
-static void draw_vol_bar(float vol, int width)
-{
-    int filled = (int)(vol * width + 0.5f);
-    if (filled > width) filled = width;
-    for (int i = 0; i < width; i++) {
-        if (i < filled) { attron(COLOR_PAIR(2)); addch(ACS_BLOCK); attrset(A_NORMAL); }
-        else addch('-');
-    }
-}
+
 
 /* ── Progress bar (shared by TRACK and EDIT) ── */
 static void draw_progress_bar(const Project *p, int row)
@@ -261,7 +266,7 @@ void editor_draw_track(const Project *p)
 
     attron(COLOR_PAIR(8) | A_BOLD);
     mvhline(r, 0, ' ', COLS);
-    mvprintw(r, C_SEL,  " # ");
+    mvprintw(r, 1, " #");          /* # at col 2 aligns with right-aligned track numbers */
     mvprintw(r, C_NAME, "%-16s", "Name");
     mvprintw(r, C_MUTE, "%-7s",  "Mute");
     mvprintw(r, C_VOL,  "%-8s",  "Volume");
@@ -274,72 +279,197 @@ void editor_draw_track(const Project *p)
     mvhline(r, 0, ACS_HLINE, COLS);
     r++;
 
+    // edited from this point
+
+    /* ── [정밀 수정본] 안전한 수동 버퍼 매핑 방식으로 경고 및 띄어쓰기 버그 완전 해결 ── */
     for (int t = 0; t < p->track_count && r <= body_end; t++, r++) {
         int is_sel = (t == g_editor.track_cursor);
 
-        /* Clear row */
-        attrset(A_NORMAL);
-        mvhline(r, 0, ' ', COLS);
+        /* TERM_COLS(140) 크기의 고정 줄 버퍼 생성 및 공백 초기화 */
+        char row[TERM_COLS + 1];
+        memset(row, ' ', TERM_COLS);
+        row[TERM_COLS] = '\0';
 
-        /* Selector + number */
-        if (is_sel) attron(COLOR_PAIR(3) | A_BOLD);
-        else        attron(COLOR_PAIR(6));
-        mvprintw(r, C_SEL, "%c%-2d  ", is_sel ? '>' : ' ', t + 1);
+        /* 1. Col 0: 선택자 (Selector) */
+        row[C_SEL] = is_sel ? '>' : ' ';
 
-        /* Name */
-        mvprintw(r, C_NAME, "%-16.16s", p->tracks[t].name);
-        attrset(A_NORMAL);
+        /* 2. Cols 1-2: 우측 정렬된 트랙 번호 (%2d 안전 조립) */
+        {
+            char tmp[4];
+            snprintf(tmp, sizeof(tmp), "%2d", t + 1);
+            row[1] = tmp[0]; 
+            row[2] = tmp[1];
+        }
 
-        /* Mute */
+        /* 3. Cols 6-21: 트랙 이름 (16자 고정폭 보장, 오버런 방지) */
+        /* 3. Cols 6-21: 트랙 이름 (16자 고정폭 보장, 배열 검사 조건 수정) */
+        if (p->tracks[t].name[0] != '\0') {  // [수정] 주소 체크 대신 첫 글자가 비어있는지 확인
+            const char *nm = p->tracks[t].name;
+            int nl = (int)strlen(nm);
+            for (int i = 0; i < 16; i++) {
+                row[C_NAME + i] = (i < nl && nm[i] != '\0') ? nm[i] : ' ';
+            }
+        }
+
+        /* 4. Cols 22-27: 뮤트 상태 ([MUTE] 6자 정확히 대입) */
         if (p->tracks[t].mute) {
-            attron(COLOR_PAIR(4) | A_BOLD);
-            mvprintw(r, C_MUTE, "[MUTE]");
-            attrset(A_NORMAL);
-        } else {
-            attron(COLOR_PAIR(6));
-            mvprintw(r, C_MUTE, "      ");
-            attrset(A_NORMAL);
+            memcpy(row + C_MUTE, "[MUTE]", 6);
         }
 
-        /* Volume bar (8 chars) */
-        move(r, C_VOL);
-        draw_vol_bar(p->tracks[t].volume, 8);
-        attrset(A_NORMAL);
+        /* 5. Cols 29-36: 볼륨 바 ('#' / '-') */
+        {
+            int filled = (int)(p->tracks[t].volume * 8 + 0.5f);
+            if (filled > 8) filled = 8;
+            for (int i = 0; i < 8; i++) {
+                row[C_VOL + i] = (i < filled) ? '#' : '-';
+            }
+        }
 
-        /* Volume percent — fixed 6-char field: " xxx% " */
-        attron(is_sel ? COLOR_PAIR(3) : COLOR_PAIR(6));
-        mvprintw(r, C_VPCT, "%3d%%  ", (int)(p->tracks[t].volume * 100 + 0.5f));
-        attrset(A_NORMAL);
+        /* 6. Cols 37-42: 볼륨 퍼센트 (%3d%% 문자열 유실 및 오버런 차단) */
+        {
+            char tmp[8];
+            snprintf(tmp, sizeof(tmp), "%3d%%", (int)(p->tracks[t].volume * 100 + 0.5f));
+            int tl = (int)strlen(tmp);
+            for (int i = 0; i < 6; i++) {
+                row[C_VPCT + i] = (i < tl) ? tmp[i] : ' ';
+            }
+        }
 
-        /* Note count — 7-char field */
-        if (is_sel) attron(COLOR_PAIR(3));
-        else        attron(COLOR_PAIR(6));
-        mvprintw(r, C_NOTE, "%-7d", p->tracks[t].event_count);
-        attrset(A_NORMAL);
+        /* 7. Cols 43-49: 노트 카운트 (%-7d 문자열 안전 대입) */
+        {
+            char tmp[12];
+            snprintf(tmp, sizeof(tmp), "%-7d", p->tracks[t].event_count);
+            int tl = (int)strlen(tmp);
+            for (int i = 0; i < 7; i++) {
+                row[C_NOTE + i] = (i < tl) ? tmp[i] : ' ';
+            }
+        }
 
-        /* Base note — 7-char field */
-        if (is_sel) attron(COLOR_PAIR(3) | A_BOLD);
-        else        attron(COLOR_PAIR(6));
-        int bn = p->tracks[t].base_note;
-        mvprintw(r, C_BASE, "%-7s", bn < 0 ? "PERC" : midi_note_name(bn));
-        attrset(A_NORMAL);
+        /* 8. Cols 50-56: 베이스 노트 (7자 고정폭) */
+        {
+            int bn = p->tracks[t].base_note;
+            const char *bns = (bn < 0) ? "PERC" : midi_note_name(bn);
+            int bl = (int)strlen(bns);
+            for (int i = 0; i < 7; i++) {
+                row[C_BASE + i] = (i < bl) ? bns[i] : ' ';
+            }
+        }
 
-        /* Instrument (basename only) */
-        const char *ip = p->tracks[t].instrument;
-        const char *sl = strrchr(ip, '/');
-        const char *inm = (sl && sl[1]) ? sl + 1 : ip;
-        if (!inm[0]) inm = "(none)";
-        attron(COLOR_PAIR(5));
-        mvprintw(r, C_INST, "%-35.35s", inm);
-        attrset(A_NORMAL);
+        /* 9. Cols 57-91: 악기 이름 (최대 35자 잘림 경고 원천 차단) */
+        {
+            const char *ip = p->tracks[t].instrument;
+            const char *sl = strrchr(ip, '/');
+            const char *inm = (sl && sl[1]) ? sl + 1 : ip;
+            if (!inm[0]) inm = "(none)";
+            int il = (int)strlen(inm);
+            for (int i = 0; i < 35; i++) {
+                row[C_INST + i] = (i < il) ? inm[i] : ' ';
+            }
+        }
 
-        /* Edit marker */
+        /* 10. Col 92+: [EDIT] 마커 처리 */
         if (t == g_editor.cur_track && g_editor.mode == MODE_EDIT) {
-            attron(COLOR_PAIR(9) | A_BOLD);
-            mvprintw(r, C_EDIT, "[EDIT]");
-            attrset(A_NORMAL);
+            memcpy(row + C_EDIT, "[EDIT]", 6);
         }
+
+        /* 단일 한 줄 문자열 상태로 출력 (ANSI 시퀀스 밀림 방지) */
+        attrset(A_NORMAL);
+        mvaddnstr(r, 0, row, COLS < TERM_COLS ? COLS : TERM_COLS);
+
+        /* 후처리 컬러 그래픽 마스킹 적용 */
+        short sel_pair = is_sel ? 3 : 6;
+        attr_t sel_attr = is_sel ? A_BOLD : A_NORMAL;
+
+        mvchgat(r, C_SEL, C_MUTE - C_SEL,  sel_attr,  sel_pair, NULL);
+        if (p->tracks[t].mute)
+            mvchgat(r, C_MUTE, 6, A_BOLD, 4, NULL);
+        mvchgat(r, C_VOL,  8, A_NORMAL, 2, NULL);
+        mvchgat(r, C_VPCT, 6, sel_attr,  sel_pair, NULL);
+        mvchgat(r, C_NOTE, 7, sel_attr,  sel_pair, NULL);
+        mvchgat(r, C_BASE, 7, sel_attr,  sel_pair, NULL);
+        mvchgat(r, C_INST, 35, A_NORMAL, 5, NULL);
+        if (t == g_editor.cur_track && g_editor.mode == MODE_EDIT)
+            mvchgat(r, C_EDIT, 6, A_BOLD, 9, NULL);
     }
+
+    // for (int t = 0; t < p->track_count && r <= body_end; t++, r++) {
+    //     int is_sel = (t == g_editor.track_cursor);
+
+    //     /* ── Build the entire row as a plain string first, then print once.
+    //      *    This avoids attron/attroff ANSI sequences shifting column positions. ── */
+    //     char row[TERM_COLS + 1];
+    //     memset(row, ' ', TERM_COLS);
+    //     row[TERM_COLS] = '\0';
+
+    //     /* Col 0: selector */
+    //     row[C_SEL] = is_sel ? '>' : ' ';
+
+    //     /* Cols 1-2: right-aligned track number */
+    //     { char tmp[3]; snprintf(tmp, sizeof(tmp), "%2d", t + 1);
+    //       row[1] = tmp[0]; row[2] = tmp[1]; }
+
+    //     /* Cols 6-21: name (16 chars) */
+    //     { const char *nm = p->tracks[t].name;
+    //       int nl = (int)strlen(nm);
+    //       for (int i = 0; i < 16; i++)
+    //           row[C_NAME + i] = (i < nl) ? nm[i] : ' '; }
+
+    //     /* Cols 22-27: mute */
+    //     if (p->tracks[t].mute)
+    //         memcpy(row + C_MUTE, "[MUTE]", 6);
+
+    //     /* Cols 29-36: vol bar using '#'/'-' */
+    //     { int filled = (int)(p->tracks[t].volume * 8 + 0.5f);
+    //       if (filled > 8) filled = 8;
+    //       for (int i = 0; i < 8; i++)
+    //           row[C_VOL + i] = (i < filled) ? '#' : '-'; }
+
+    //     /* Cols 37-42: vol percent */
+    //     { char tmp[8]; snprintf(tmp, sizeof(tmp), "%3d%%  ",
+    //           (int)(p->tracks[t].volume * 100 + 0.5f));
+    //       for (int i = 0; i < 6 && tmp[i]; i++) row[C_VPCT + i] = tmp[i]; }
+
+    //     /* Cols 43-49: note count */
+    //     { char tmp[8]; snprintf(tmp, sizeof(tmp), "%-7d", p->tracks[t].event_count);
+    //       for (int i = 0; i < 7 && tmp[i]; i++) row[C_NOTE + i] = tmp[i]; }
+
+    //     /* Cols 50-56: base note */
+    //     { int bn = p->tracks[t].base_note;
+    //       const char *bns = (bn < 0) ? "PERC" : midi_note_name(bn);
+    //       int bl = (int)strlen(bns);
+    //       for (int i = 0; i < 7; i++) row[C_BASE + i] = (i < bl) ? bns[i] : ' '; }
+
+    //     /* Cols 57-91: instrument basename */
+    //     { const char *ip = p->tracks[t].instrument;
+    //       const char *sl = strrchr(ip, '/');
+    //       const char *inm = (sl && sl[1]) ? sl + 1 : ip;
+    //       if (!inm[0]) inm = "(none)";
+    //       int il = (int)strlen(inm);
+    //       for (int i = 0; i < 35; i++) row[C_INST + i] = (i < il) ? inm[i] : ' '; }
+
+    //     /* Col 92+: [EDIT] marker */
+    //     if (t == g_editor.cur_track && g_editor.mode == MODE_EDIT)
+    //         memcpy(row + C_EDIT, "[EDIT]", 6);
+
+    //     /* Print the whole row in one shot — no color changes during print */
+    //     attrset(A_NORMAL);
+    //     mvaddnstr(r, 0, row, COLS < TERM_COLS ? COLS : TERM_COLS);
+
+    //     /* Apply colors with mvchgat (changes attrs of already-drawn chars) */
+    //     short sel_pair = is_sel ? 3 : 6;
+    //     attr_t  sel_attr = is_sel ? A_BOLD : A_NORMAL;
+
+    //     mvchgat(r, C_SEL, C_MUTE - C_SEL,  sel_attr,  sel_pair, NULL); /* sel+num+name */
+    //     if (p->tracks[t].mute)
+    //         mvchgat(r, C_MUTE, 6, A_BOLD, 4, NULL);                     /* [MUTE] red */
+    //     mvchgat(r, C_VOL,  8, A_NORMAL, 2, NULL);                       /* vol bar green */
+    //     mvchgat(r, C_VPCT, 6, sel_attr,  sel_pair, NULL);               /* vol% */
+    //     mvchgat(r, C_NOTE, 7, sel_attr,  sel_pair, NULL);               /* notes */
+    //     mvchgat(r, C_BASE, 7, sel_attr,  sel_pair, NULL);               /* base */
+    //     mvchgat(r, C_INST, 35, A_NORMAL, 5, NULL);                      /* instrument */
+    //     if (t == g_editor.cur_track && g_editor.mode == MODE_EDIT)
+    //         mvchgat(r, C_EDIT, 6, A_BOLD, 9, NULL);                     /* [EDIT] */
+    // }
 
     #undef C_SEL
     #undef C_NAME
@@ -355,41 +485,6 @@ void editor_draw_track(const Project *p)
     int pb_row = LINES - HELP_ROWS - 1;
     mvhline(pb_row - 1, 0, ACS_HLINE, COLS);
     draw_progress_bar(p, pb_row);
-}
-
-/* ── Track sidebar (shown in EDIT / PIANO mode) ── */
-static void draw_track_sidebar(const Project *p)
-{
-    int row_start = HEADER_ROWS;
-    int avail     = LINES - HEADER_ROWS - HELP_ROWS;
-
-    /* First clear every row in the sidebar area */
-    for (int r = row_start; r < LINES - HELP_ROWS; r++) {
-        mvhline(r, 0, ' ', TRACK_COLS - 1);
-        mvaddch(r, TRACK_COLS - 1, ACS_VLINE);
-    }
-
-    /* Then draw each track */
-    for (int t = 0; t < p->track_count && t < avail; t++) {
-        if (t == g_editor.cur_track) attron(COLOR_PAIR(3) | A_BOLD);
-        else                          attron(COLOR_PAIR(7));
-
-        /* TRACK_COLS=11: col 0..9 = content, col 10 = ACS_VLINE
-         * Format: [M/space][name 5chars][vol 4chars] = 10 chars */
-        char vb[5];
-        int vbars = (int)(p->tracks[t].volume * 4 + 0.5f);
-        for (int i = 0; i < 4; i++) vb[i] = (i < vbars) ? '#' : '-';
-        vb[4] = '\0';
-
-        /* Print exactly 10 chars into cols 0..9 */
-        mvprintw(row_start + t, 0, "%c%-5.5s%-4s",
-                 p->tracks[t].mute ? 'M' : ' ',
-                 p->tracks[t].name,
-                 vb);
-        attrset(A_NORMAL);
-        /* Restore vline (mvprintw may have overwritten it) */
-        mvaddch(row_start + t, TRACK_COLS - 1, ACS_VLINE);
-    }
 }
 
 /* ── note shape helper ── */
@@ -421,7 +516,7 @@ static void note_shape_at(const Project *p, int track,
 void editor_draw_pianoroll(const Project *p)
 {
     int row_start  = HEADER_ROWS;
-    int col_start  = TRACK_COLS + NOTE_LABEL_COLS;
+    int col_start  = NOTE_LABEL_COLS;
     int avail_rows = LINES - HEADER_ROWS - HELP_ROWS - 2; /* -2 for info+prog */
     int vcols      = visible_tick_cols();
 
@@ -444,13 +539,12 @@ void editor_draw_pianoroll(const Project *p)
 
     /* Clamp horizontal view:
      * - When playing: follow the playhead (keep it ~25% from left edge)
-     * - When stopped: follow the edit cursor */
+     * - When stopped: follow the edit cursor with right-side margin */
+    #define HSCROLL_RIGHT_MARGIN 6
     if (audio_is_playing()) {
         uint32_t ph = audio_current_tick();
-        /* Scroll if playhead is outside the visible area */
         if (ph < (uint32_t)g_editor.view_tick_start ||
             ph >= (uint32_t)(g_editor.view_tick_start + vcols)) {
-            /* Place playhead at 25% from left */
             int margin = vcols / 4;
             g_editor.view_tick_start = (int)ph - margin;
             if (g_editor.view_tick_start < 0) g_editor.view_tick_start = 0;
@@ -458,8 +552,10 @@ void editor_draw_pianoroll(const Project *p)
     } else {
         if (g_editor.cur_tick < g_editor.view_tick_start)
             g_editor.view_tick_start = g_editor.cur_tick;
-        if (g_editor.cur_tick >= g_editor.view_tick_start + vcols)
-            g_editor.view_tick_start = g_editor.cur_tick - vcols + 1;
+        if (g_editor.cur_tick >= g_editor.view_tick_start + vcols - HSCROLL_RIGHT_MARGIN) {
+            g_editor.view_tick_start = g_editor.cur_tick - vcols + HSCROLL_RIGHT_MARGIN + 1;
+            if (g_editor.view_tick_start < 0) g_editor.view_tick_start = 0;
+        }
     }
     g_editor.view_tick_cols = vcols;
 
@@ -490,22 +586,49 @@ void editor_draw_pianoroll(const Project *p)
         }
     }
 
-    /* Piano rows */
-    int piano_rows  = note_max - note_min + 1;
+    /* Piano rows — vertical scroll follows cursor with margin */
+    int piano_rows   = note_max - note_min + 1;
     int display_rows = (piano_rows < avail_rows) ? piano_rows : avail_rows;
 
+    #define VSCROLL_MARGIN 3
+    /* Clamp view_note_top to valid range */
+    if (g_editor.view_note_top > note_max) g_editor.view_note_top = note_max;
+    if (g_editor.view_note_top < note_min + display_rows - 1)
+        g_editor.view_note_top = note_min + display_rows - 1;
+    /* Scroll up when cursor is above visible area */
+    if (g_editor.cur_note > g_editor.view_note_top - VSCROLL_MARGIN)
+        g_editor.view_note_top = g_editor.cur_note + VSCROLL_MARGIN;
+    /* Scroll down when cursor is below visible area */
+    if (g_editor.cur_note < g_editor.view_note_top - display_rows + 1 + VSCROLL_MARGIN)
+        g_editor.view_note_top = g_editor.cur_note + display_rows - 1 - VSCROLL_MARGIN;
+    /* Final clamp */
+    if (g_editor.view_note_top > note_max) g_editor.view_note_top = note_max;
+    if (g_editor.view_note_top < note_min + display_rows - 1)
+        g_editor.view_note_top = note_min + display_rows - 1;
+
     for (int ri = 0; ri < display_rows; ri++) {
-        int note = note_max - ri;
+        int note = g_editor.view_note_top - ri;
+        if (note < note_min || note > note_max) continue;
         int row  = row_start + 1 + ri;
         if (row >= LINES - HELP_ROWS - 2) break;
 
-        int chroma   = (ct->base_note < 0) ? (note % 12) : (note % 12);
+        int chroma   = note % 12;
         int is_sharp = (chroma==1||chroma==3||chroma==6||chroma==8||chroma==10);
+        int is_cur_row = (note == g_editor.cur_note);
 
-        /* Label column: right-align 4 chars */
-        if (is_sharp) attron(A_DIM);
-        mvprintw(row, TRACK_COLS, "%4s", midi_note_name(note));
-        attrset(A_NORMAL);
+        /* Label column at col 0: highlight selected row, dim sharps */
+        if (is_cur_row) {
+            attron(COLOR_PAIR(3) | A_BOLD | A_REVERSE);
+            mvprintw(row, 0, "%-4s", midi_note_name(note));
+            attrset(A_NORMAL);
+        } else if (is_sharp) {
+            attron(A_DIM);
+            mvprintw(row, 0, "%4s", midi_note_name(note));
+            attrset(A_NORMAL);
+        } else {
+            mvprintw(row, 0, "%4s", midi_note_name(note));
+            attrset(A_NORMAL);
+        }
 
         /* Tick cells */
         for (int tc = 0; tc < vcols; tc++) {
@@ -557,27 +680,29 @@ void editor_draw_pianoroll(const Project *p)
     /* Info bar */
     int info_row = LINES - HELP_ROWS - 2;
     if (info_row > HEADER_ROWS) {
-        attron(A_REVERSE | A_BOLD);
+        attron(A_REVERSE);
         mvhline(info_row, 0, ' ', COLS);
-        const char *note_name = (ct->base_note < 0)
-            ? midi_note_name(g_editor.cur_note)
-            : midi_note_name(g_editor.cur_note);
-        mvprintw(info_row, 1,
-            " Note:%-4s(MIDI%3d) | Tick:%-4d Bar:%-3d Bt:%d | Trk:%d %-10.10s | BPM:%-3d",
-            note_name, g_editor.cur_note,
+        attroff(A_REVERSE);
+        const char *note_name = midi_note_name(g_editor.cur_note);
+        /* Highlighted note name badge */
+        attron(COLOR_PAIR(9) | A_BOLD);
+        mvprintw(info_row, 1, " %-4s ", note_name);
+        attroff(COLOR_PAIR(9) | A_BOLD);
+        attron(A_REVERSE);
+        mvprintw(info_row, 7,
+            " MIDI%3d | Tick:%-4d Bar:%-3d Bt:%d | Trk:%d %-10.10s | BPM:%-3d",
+            g_editor.cur_note,
             g_editor.cur_tick,
             g_editor.cur_tick / TICKS_PER_QN + 1,
             g_editor.cur_tick % TICKS_PER_QN + 1,
             g_editor.cur_track + 1,
             p->tracks[g_editor.cur_track].name,
             p->bpm);
-        attroff(A_REVERSE | A_BOLD);
+        attroff(A_REVERSE);
     }
 
     /* Progress bar */
     draw_progress_bar(p, LINES - HELP_ROWS - 1);
-
-    draw_track_sidebar(p);
 }
 
 /* ── FILE mode ── */
@@ -794,6 +919,39 @@ static void handle_track_key(int ch, Project *p)
                  "Seek -> tick %u", g_editor.play_cursor);
         break;
 
+    /* 0: jump playhead to start */
+    case '0':
+        g_editor.play_cursor = 0;
+        audio_seek_tick(0);
+        snprintf(g_editor.status_msg, sizeof(g_editor.status_msg), "Seek -> start (tick 0)");
+        break;
+
+    /* Rename selected track */
+    case 'n': case 'N': {
+        char buf[32] = {0};
+        prompt_string("Rename track: ", buf, 31);
+        if (buf[0]) {
+            strncpy(p->tracks[g_editor.track_cursor].name, buf, 31);
+            p->tracks[g_editor.track_cursor].name[31] = '\0';
+            snprintf(g_editor.status_msg, sizeof(g_editor.status_msg),
+                     "Track %d renamed to: %s", g_editor.track_cursor + 1, buf);
+        }
+        break; }
+
+    /* BPM control: , / . */
+    case ',': {
+        int bpm = audio_get_bpm() - 5;
+        if (bpm < 20) bpm = 20;
+        audio_set_bpm(bpm); p->bpm = bpm;
+        snprintf(g_editor.status_msg, sizeof(g_editor.status_msg), "BPM -> %d", bpm);
+        break; }
+    case '.': {
+        int bpm = audio_get_bpm() + 5;
+        if (bpm > 300) bpm = 300;
+        audio_set_bpm(bpm); p->bpm = bpm;
+        snprintf(g_editor.status_msg, sizeof(g_editor.status_msg), "BPM -> %d", bpm);
+        break; }
+
     /* Enter: open edit for selected track */
     case '\n': case '\r': case KEY_ENTER:
         g_editor.cur_track  = g_editor.track_cursor;
@@ -803,6 +961,8 @@ static void handle_track_key(int ch, Project *p)
         g_editor.cur_tick   = audio_current_tick();
         g_editor.view_tick_start = ((uint32_t)g_editor.cur_tick > (uint32_t)visible_tick_cols()/2)
                                    ? g_editor.cur_tick - visible_tick_cols()/2 : 0;
+        g_editor.view_note_top = (p->tracks[g_editor.cur_track].base_note >= 0)
+                                 ? p->tracks[g_editor.cur_track].base_note + 11 : 59;
         editor_set_mode(MODE_EDIT, p);
         break;
 
@@ -883,8 +1043,11 @@ static void handle_track_key(int ch, Project *p)
             strncpy(p->tracks[g_editor.track_cursor].instrument, instr, 127);
             p->tracks[g_editor.track_cursor].instrument[127] = '\0';
             audio_load_instrument(g_editor.track_cursor, instr);
+            int bn = pick_base_note();
+            p->tracks[g_editor.track_cursor].base_note = bn;
             snprintf(g_editor.status_msg, sizeof(g_editor.status_msg),
-                     "Instrument changed.");
+                     "Instrument changed. Base: %s",
+                     bn < 0 ? "PERC" : midi_note_name(bn));
         }
         break; }
 
@@ -895,6 +1058,52 @@ static void handle_track_key(int ch, Project *p)
         snprintf(g_editor.status_msg, sizeof(g_editor.status_msg),
                  "Track %d base note: %s", g_editor.track_cursor+1,
                  bn < 0 ? "PERC" : midi_note_name(bn));
+        break; }
+
+    /* Duplicate track — insert copy right after selected, with optional transpose */
+    case 'c': case 'C': {
+        if (p->track_count >= MAX_TRACKS) {
+            snprintf(g_editor.status_msg, sizeof(g_editor.status_msg),
+                     "Max %d tracks reached.", MAX_TRACKS);
+            break;
+        }
+        int src = g_editor.track_cursor;
+        int dst = src + 1;
+        /* Save source name before any moves */
+        char src_name[32];
+        memcpy(src_name, p->tracks[src].name, sizeof(src_name));
+        /* Shift everything from dst onwards one position down */
+        for (int i = p->track_count; i > dst; i--)
+            p->tracks[i] = p->tracks[i - 1];
+        /* Deep-copy source into dst */
+        p->tracks[dst] = p->tracks[src];
+        /* Give copy a distinct name (append "cp", max 31 chars) */
+        snprintf(p->tracks[dst].name, sizeof(p->tracks[dst].name),
+                 "%.27scp", src_name);
+        p->track_count++;
+
+        /* Ask for transpose amount — only shift note events, not base_note.
+         * base_note defines the sample tuning; shifting both cancels out. */
+        int tr = pick_transpose();
+        if (tr != 0) {
+            for (int e = 0; e < p->tracks[dst].event_count; e++) {
+                int n = (int)p->tracks[dst].events[e].note + tr;
+                if (n < 0)   n = 0;
+                if (n > 127) n = 127;
+                p->tracks[dst].events[e].note = (uint8_t)n;
+            }
+        }
+
+        /* Keep cur_track pointing at the same track if it shifted */
+        if (g_editor.cur_track >= dst)
+            g_editor.cur_track++;
+        g_editor.track_cursor = dst;
+        /* Re-register instruments for all tracks at dst and beyond */
+        for (int i = dst; i < p->track_count; i++)
+            audio_load_instrument(i, p->tracks[i].instrument);
+        snprintf(g_editor.status_msg, sizeof(g_editor.status_msg),
+                 "Track %d duplicated as Track %d%s.", src + 1, dst + 1,
+                 tr != 0 ? " (transposed)" : "");
         break; }
 
     /* Delete track */
@@ -927,15 +1136,6 @@ static void handle_track_key(int ch, Project *p)
  * ═══════════════════════════════════════════════ */
 
 /* Jump helpers: find first/last tick that has any note in cur_track */
-static uint32_t track_first_tick(const Project *p)
-{
-    const Track *t = &p->tracks[g_editor.cur_track];
-    uint32_t first = UINT32_MAX;
-    for (int i = 0; i < t->event_count; i++)
-        if (t->events[i].start_tick < first) first = t->events[i].start_tick;
-    return (first == UINT32_MAX) ? 0 : first;
-}
-
 static uint32_t track_last_tick(const Project *p)
 {
     const Track *t = &p->tracks[g_editor.cur_track];
@@ -1002,13 +1202,12 @@ static void handle_edit_key(int ch, Project *p)
                  "Jumped to last note (tick %u).", g_editor.cur_tick);
         break;
 
-    /* Ctrl+Left: jump to first note */
-    case KEY_CTRL('b'):   /* 02 */
-    case 517: case 559:
-        g_editor.cur_tick = track_first_tick(p);
+    /* 0: jump to start (tick 0) */
+    case '0':
+        g_editor.cur_tick = 0;
         pause_after_edit_seek();
         snprintf(g_editor.status_msg, sizeof(g_editor.status_msg),
-                 "Jumped to first note (tick %u).", g_editor.cur_tick);
+                 "Jumped to start (tick 0).");
         break;
 
     /* Space: play / pause — always start/resume from cursor position */
@@ -1090,6 +1289,8 @@ static void handle_edit_key(int ch, Project *p)
             g_editor.cur_track--;
             g_editor.cur_note = (p->tracks[g_editor.cur_track].base_note >= 0)
                                 ? p->tracks[g_editor.cur_track].base_note : 48;
+            g_editor.view_note_top = (p->tracks[g_editor.cur_track].base_note >= 0)
+                                    ? p->tracks[g_editor.cur_track].base_note + 11 : 59;
         }
         break;
     case ']':
@@ -1097,6 +1298,8 @@ static void handle_edit_key(int ch, Project *p)
             g_editor.cur_track++;
             g_editor.cur_note = (p->tracks[g_editor.cur_track].base_note >= 0)
                                 ? p->tracks[g_editor.cur_track].base_note : 48;
+            g_editor.view_note_top = (p->tracks[g_editor.cur_track].base_note >= 0)
+                                    ? p->tracks[g_editor.cur_track].base_note + 11 : 59;
         }
         break;
 
@@ -1130,7 +1333,7 @@ static int fuzzy_match(const char *haystack, const char *query)
 
 static int pick_instrument(char out[128])
 {
-    char files[64][128];
+    char files[64][264];
     int  nfiles = file_list_instruments(files, 64);
     if (nfiles == 0) {
         snprintf(out, 128, "%s/silent.wav", SAMPLES_DIR);
@@ -1364,6 +1567,107 @@ static int pick_base_note(void)
 
     nodelay(stdscr, TRUE);
     return (oct_sel + 1) * 12 + note_sel;
+}
+
+/* ── Semitone / interval name ── */
+static const char *semitone_name(int st)
+{
+    switch (st) {
+    case -24: return "2 oct down";
+    case -12: return "1 oct down";
+    case  -7: return "P5 down";
+    case  -5: return "P4 down";
+    case  -4: return "M3 down";
+    case  -3: return "m3 down";
+    case  -2: return "M2 down";
+    case  -1: return "m2 down";
+    case   0: return "Unison (no transpose)";
+    case   1: return "m2";
+    case   2: return "M2";
+    case   3: return "m3  (minor chord)";
+    case   4: return "M3  (major chord)";
+    case   5: return "P4";
+    case   7: return "P5";
+    case   8: return "m6";
+    case   9: return "M6";
+    case  10: return "m7";
+    case  11: return "M7";
+    case  12: return "1 oct up";
+    case  24: return "2 oct up";
+    default:  return "";
+    }
+}
+
+/* pick_transpose: choose a semitone offset (-24..+24) for duplication */
+static int pick_transpose(void)
+{
+    #define TR_HALF 24   /* ±24 semitones = ±2 octaves */
+
+    nodelay(stdscr, FALSE);
+    int st = 0, done = 0;
+
+    while (!done) {
+        int r = HEADER_ROWS + 2;
+
+        attron(COLOR_PAIR(8) | A_BOLD);
+        mvhline(r-2, 0, ' ', COLS);
+        mvprintw(r-2, 2,
+            "TRANSPOSE  Left/Right:±1 semitone   Up/Down:±12 (octave)"
+            "   Enter:apply   ESC:no transpose");
+        attrset(A_NORMAL);
+
+        /* Clear work area */
+        for (int i = -1; i <= 3; i++) mvhline(r+i, 0, ' ', COLS);
+
+        /* Value + interval name */
+        attron(COLOR_PAIR(3) | A_BOLD);
+        mvprintw(r, 4, "[ %+3d ]   %-26s", st, semitone_name(st));
+        attrset(A_NORMAL);
+
+        /* Visual bar: -24 ... 0 ... +24 (49 chars) */
+        int bx = 4;   /* left edge of the label "-2oct" */
+        mvprintw(r+2, bx, "-2oct");
+        bx += 5;
+        for (int i = -TR_HALF; i <= TR_HALF; i++) {
+            int col = bx + (i + TR_HALF);
+            char c;
+            if      (i == st)       c = '*';
+            else if (i == 0)        c = '|';
+            else if (i % 12 == 0)   c = ':';
+            else                    c = '-';
+
+            if (i == st)            attron(COLOR_PAIR(3) | A_BOLD);
+            else if (i == 0)        attron(A_BOLD);
+            mvaddch(r+2, col, (chtype)c);
+            attrset(A_NORMAL);
+        }
+        mvprintw(r+2, bx + TR_HALF*2 + 1, "+2oct");
+
+        /* Octave labels under the bar */
+        mvprintw(r+3, bx + TR_HALF - 1, "C  ");
+        attron(A_DIM);
+        mvprintw(r+3, bx,             "-1oct");
+        mvprintw(r+3, bx + TR_HALF*2 - 4, "+1oct");
+        attrset(A_NORMAL);
+
+        refresh();
+
+        int ch = getch();
+        if      (ch == KEY_LEFT  && st > -TR_HALF) st--;
+        else if (ch == KEY_RIGHT && st <  TR_HALF) st++;
+        else if (ch == KEY_UP) {
+            st += 12;
+            if (st > TR_HALF) st = TR_HALF;
+        } else if (ch == KEY_DOWN) {
+            st -= 12;
+            if (st < -TR_HALF) st = -TR_HALF;
+        } else if (ch == '\n' || ch == '\r' || ch == KEY_ENTER) done = 1;
+        else if (ch == 27) { st = 0; done = 1; }
+    }
+
+    nodelay(stdscr, TRUE);
+    #undef TR_HALF
+    return st;
 }
 
 /* ── Inline string prompt ── */

@@ -287,7 +287,7 @@ static void perf_draw(void)
 /* ── Instrument picker ── */
 static void perf_pick_instrument(void)
 {
-    char files[64][128];
+    char files[64][264];
     int  nf = file_list_instruments(files, 64);
     if (nf == 0) {
         snprintf(s_status, sizeof(s_status), "No .wav files in samples/");
@@ -405,7 +405,7 @@ void run_performance_mode(void)
                            + (now.tv_nsec-last_seen[n].tv_nsec)*1e-9;
             if (silence > 0.06) {
                 s_held[n] = 0;
-                audio_note_off(0, n);
+                /* Note plays for its full bar duration — no early note_off */
             }
         }
 
@@ -440,7 +440,7 @@ void run_performance_mode(void)
                 snprintf(s_status,sizeof(s_status),
                     "Playing: %s%d (MIDI %d)",
                     CHROMA[note%12], note/12-1, note);
-                audio_note_on(0, note, 1.0f);
+                audio_note_on_dur(0, note, 1.0f, TICKS_PER_QN * 4);
             } else {
                 
                 clock_gettime(CLOCK_MONOTONIC, &last_seen[note]);
@@ -448,8 +448,8 @@ void run_performance_mode(void)
         }
     }
 
-    /* Release all held notes */
-    for (int n=0;n<128;n++) { if(s_held[n]){ s_held[n]=0; audio_note_off(0, n); } }
+    /* Clear held state (notes play out their full duration naturally) */
+    for (int n=0;n<128;n++) { s_held[n]=0; }
     memset(s_held, 0, sizeof(s_held));
     /* Returns to caller (main loop → show_intro again) */
 }

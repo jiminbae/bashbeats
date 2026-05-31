@@ -29,7 +29,7 @@ int  file_ensure_saves_dir(void);
 /* Scan SAMPLES_DIR for *.wav files.
  * Fills out[0..max-1] with relative paths like "samples/piano.wav".
  * Returns number of files found (0 if none or dir absent). */
-int  file_list_instruments(char out[][128], int max);
+int  file_list_instruments(char out[][264], int max);
 
 /* Ensure a fallback silent.wav exists for empty/missing sample sets. */
 void file_ensure_stub_instrument(void);

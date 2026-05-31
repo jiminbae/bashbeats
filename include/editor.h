@@ -22,6 +22,9 @@ typedef struct {
     int view_tick_start;    /* first visible tick */
     int view_tick_cols;     /* number of tick columns currently visible */
 
+    /* Viewport (pianoroll vertical scroll) */
+    int view_note_top;      /* highest MIDI note currently shown */
+
     /* Note input state (for , / . spanning) */
     int  span_active;       /* 1 if ',' was pressed and waiting for '.' */
     int  span_start_tick;

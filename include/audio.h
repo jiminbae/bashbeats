@@ -16,8 +16,9 @@ void audio_set_local_output(int enabled);
 void audio_load_instrument(int track_idx, const char *wav_path);
 
 /* ── Realtime note control ── */
-void audio_note_on (int track_idx, int note, float vol);
-void audio_note_off(int track_idx, int note);
+void audio_note_on    (int track_idx, int note, float vol);
+void audio_note_on_dur(int track_idx, int note, float vol, uint32_t dur_ticks);
+void audio_note_off   (int track_idx, int note);
 
 /* ── Project playback ── */
 void audio_play   (Project *p);

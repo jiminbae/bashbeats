@@ -12,14 +12,14 @@
 #define MAX_TRACKS      16
 #define MAX_EVENTS      4096       /* max note events per track */
 #define TICKS_PER_QN    4          /* quarter note = 4 ticks */
-#define PIANO_ROWS      24         /* 2 octaves shown in pianoroll */
+#define PIANO_ROWS      48         /* 4 octaves shown in pianoroll */
 
 /* ── MIDI note helpers ──
  * Each track has its own base_note (= "middle C" for that instrument).
- * The pianoroll shows [base_note - 12 .. base_note + 11] (24 semitones).
+ * The pianoroll shows [base_note - 24 .. base_note + 23] (48 semitones / 4 octaves).
  * Use these macros with a Track pointer. */
-#define TRACK_NOTE_MIN(t)  ((t)->base_note - 12)
-#define TRACK_NOTE_MAX(t)  ((t)->base_note + 11)
+#define TRACK_NOTE_MIN(t)  ((t)->base_note - 24)
+#define TRACK_NOTE_MAX(t)  ((t)->base_note + 23)
 
 /* ── Canonical MIDI note name (any note 0..127) ── */
 const char *midi_note_name(int note);   /* e.g. 60 -> "C4", 61 -> "C#4" */

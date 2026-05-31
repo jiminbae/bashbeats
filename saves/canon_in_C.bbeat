@@ -3,8 +3,8 @@ TITLE canon_in_C
 BPM 120
 
 TRACK 0
-  NAME   Track 1
-  INSTR samples/piano.wav
+  NAME this4
+  INSTR samples/piano-C4.wav
   BASE  60
   VOL   1.00
   MUTE  0
@@ -28,7 +28,7 @@ TRACK 0
 END
 
 TRACK 1
-  NAME   Track2
+  NAME this3
   INSTR samples/Alesis-Fusion-Acoustic-Bass-C2.wav
   BASE  36
   VOL   1.00
@@ -61,7 +61,7 @@ TRACK 1
 END
 
 TRACK 2
-  NAME   Track3
+  NAME this2
   INSTR samples/snare.wav
   BASE  60
   VOL   1.00
@@ -102,9 +102,9 @@ TRACK 2
 END
 
 TRACK 3
-  NAME  Track4
+  NAME this1
   INSTR samples/kick.wav
-  BASE  -1
+  BASE  60
   VOL   1.00
   MUTE  0
   # start_tick  note  duration_tick  velocity

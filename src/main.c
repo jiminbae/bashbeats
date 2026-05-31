@@ -39,6 +39,48 @@ static AudioOutputMode g_audio_output_mode = AUDIO_OUTPUT_AUTO;
 static int g_stream_port = DEFAULT_STREAM_PORT;
 static int g_stream_started = 0;
 
+/* ── Autosave ── */
+static pthread_t    g_autosave_thr;
+static volatile int g_autosave_run = 0;
+
+static void *autosave_fn(void *arg)
+{
+    (void)arg;
+    int ticks = 0;
+    while (g_autosave_run) {
+        struct timespec ts = {0, 100000000L};   /* 100 ms sleep chunks */
+        nanosleep(&ts, NULL);
+        if (!g_autosave_run) break;
+        if (++ticks < 50) continue;             /* 50 × 100 ms = 5 s */
+        ticks = 0;
+        pthread_mutex_lock(&g_project_mtx);
+        if (g_project && g_editor.file_path[0])
+            project_save(g_project, g_editor.file_path);
+        pthread_mutex_unlock(&g_project_mtx);
+    }
+    return NULL;
+}
+
+static void autosave_start(void)
+{
+    if (g_autosave_run) return;
+    g_autosave_run = 1;
+    /* Inherit SIGINT mask from current thread (already blocked by audio_init) */
+    sigset_t blk, old;
+    sigemptyset(&blk);
+    sigaddset(&blk, SIGINT);
+    pthread_sigmask(SIG_BLOCK, &blk, &old);
+    pthread_create(&g_autosave_thr, NULL, autosave_fn, NULL);
+    pthread_sigmask(SIG_SETMASK, &old, NULL);
+}
+
+static void autosave_stop(void)
+{
+    if (!g_autosave_run) return;
+    g_autosave_run = 0;
+    pthread_join(g_autosave_thr, NULL);
+}
+
 static void cleanup(void);
 
 static void register_cleanup_once(void)
@@ -51,6 +93,7 @@ static void register_cleanup_once(void)
 
 static void cleanup(void)
 {
+    autosave_stop();
     editor_cleanup();
     audio_cleanup();
     stream_cleanup();
@@ -271,7 +314,7 @@ static int show_intro(void)
     cbreak();
     noecho();
     keypad(stdscr, TRUE);
-    nodelay(stdscr, FALSE);
+    timeout(500);   /* wake up every 500 ms to check g_sigint_received */
     curs_set(0);
 
     if (has_colors()) {
@@ -332,9 +375,7 @@ static int show_intro(void)
         brow++;
 
         /* Build filtered list:
-         * Index 0: [+] New project (DAW)
-         * Index 1: [~] Performance mode
-         * Index 2+: .bbeat files */
+         * [+] New project, [~] Performance mode, files */
         int fidx[128]; int nf = 0;
         int show_new  = str_contains("New project",      query) || !query[0];
         int show_perf = str_contains("Performance mode", query) || !query[0];
@@ -453,7 +494,16 @@ int main(int argc, char *argv[])
     if (parse_result > 0) return 0;
     if (parse_result < 0) return 1;
 
-    signal(SIGINT, sigint_handler);   /* Ctrl+C → set flag, not hard exit */
+    /* Use sigaction without SA_RESTART so blocking getch() returns ERR
+     * immediately when Ctrl+C arrives, rather than being silently restarted. */
+    {
+        struct sigaction sa;
+        memset(&sa, 0, sizeof(sa));
+        sa.sa_handler = sigint_handler;
+        sigemptyset(&sa.sa_mask);
+        sa.sa_flags = 0;   /* no SA_RESTART */
+        sigaction(SIGINT, &sa, NULL);
+    }
 
     file_ensure_saves_dir();
     file_ensure_stub_instrument();
@@ -540,7 +590,10 @@ launch_daw:
         }
     }
 
+    autosave_start();
     g_project = editor_run(g_project);
+    autosave_stop();
+
     if (g_editor.exit_to_intro) {
         audio_stop();
         stop_stream();

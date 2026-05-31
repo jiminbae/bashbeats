@@ -22,7 +22,7 @@ int file_ensure_saves_dir(void)
 /* ── file_list_instruments ──
  * Scans SAMPLES_DIR for *.wav files.
  * Returns count; fills out[] with relative paths "samples/foo.wav". */
-int file_list_instruments(char out[][128], int max)
+int file_list_instruments(char out[][264], int max)
 {
     DIR *dp = opendir(SAMPLES_DIR);
     if (!dp) return 0;
@@ -33,7 +33,7 @@ int file_list_instruments(char out[][128], int max)
         const char *name = ent->d_name;
         size_t len = strlen(name);
         if (len > 4 && strcmp(name + len - 4, ".wav") == 0) {
-            snprintf(out[n], 128, "%s/%s", SAMPLES_DIR, name);
+            snprintf(out[n], 264, "%s/%s", SAMPLES_DIR, name);
             n++;
         }
     }
@@ -183,11 +183,15 @@ Project *project_load(const char *path)
             snprintf(p->tracks[idx].instrument, 128, "%s/piano.wav", SAMPLES_DIR);
 
         } else if (cur >= 0 && strncmp(tok, "NAME ", 5) == 0) {
-            strncpy(p->tracks[cur].name, tok + 5, 31);
+            const char *val = tok + 5;
+            while (*val == ' ' || *val == '\t') val++;
+            strncpy(p->tracks[cur].name, val, 31);
             p->tracks[cur].name[31] = '\0';
 
         } else if (cur >= 0 && strncmp(tok, "INSTR ", 6) == 0) {
-            strncpy(p->tracks[cur].instrument, tok + 6, 127);
+            const char *val = tok + 6;
+            while (*val == ' ' || *val == '\t') val++;
+            strncpy(p->tracks[cur].instrument, val, 127);
             p->tracks[cur].instrument[127] = '\0';
 
         } else if (cur >= 0 && strncmp(tok, "BASE ", 5) == 0) {
@@ -245,7 +249,7 @@ int project_save(const Project *p, const char *path)
     for (int i = 0; i < p->track_count; i++) {
         const Track *t = &p->tracks[i];
         fprintf(fp, "\nTRACK %d\n",      i);
-        fprintf(fp, "  NAME  %s\n",      t->name);
+        fprintf(fp, "  NAME %s\n",       t->name);
         fprintf(fp, "  INSTR %s\n",      t->instrument);
         fprintf(fp, "  BASE  %d\n",      t->base_note);
         fprintf(fp, "  VOL   %.2f\n",    t->volume);
