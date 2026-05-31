@@ -14,6 +14,8 @@
 #include <sys/stat.h>
 #include <math.h>
 #include <signal.h>
+#include <ifaddrs.h>
+#include <arpa/inet.h>
 
 /* ── Fixed terminal size ── */
 #define TERM_ROWS  35
@@ -235,7 +237,7 @@ static void draw_progress_bar(const Project *p, int row)
 }
 
 /* ═══════════════════════════════════════════════
- *  TRACK MODE DRAW
+ *  TRACK MODE DRAW, edited space logic
  * ═══════════════════════════════════════════════ */
 
 void editor_draw_track(const Project *p)
@@ -741,6 +743,85 @@ void editor_draw_file(const Project *p)
     #undef FROW
 
     /* Divider */
+    mvaddch(r, px, ACS_LTEE); mvhline(r, px+1, ACS_HLINE, pw-2);
+    mvaddch(r, px+pw-1, ACS_RTEE); r++;
+
+    /* Stream connection info */
+    mvaddch(r, px, ACS_VLINE);
+    attron(COLOR_PAIR(1) | A_BOLD);
+    mvprintw(r, px+2, " %-*s", pw-5, "STREAM CONNECTION");
+    attroff(COLOR_PAIR(1) | A_BOLD);
+    mvaddch(r, px+pw-1, ACS_VLINE); r++;
+
+    if (g_editor.stream_port > 0) {
+        /* Port row */
+        mvaddch(r, px, ACS_VLINE);
+        attron(A_BOLD); mvprintw(r, px+2, " %-8s", "Port"); attroff(A_BOLD);
+        mvprintw(r, px+11, "%d", g_editor.stream_port);
+        mvprintw(r, px+16, "   %d client%s connected",
+                 g_editor.stream_clients,
+                 g_editor.stream_clients == 1 ? "" : "s");
+        for (int _i = px+44; _i < px+pw-1; _i++) mvaddch(r, _i, ' ');
+        mvaddch(r, px+pw-1, ACS_VLINE); r++;
+
+        /* Enumerate non-loopback IPv4 addresses */
+        struct ifaddrs *ifap = NULL;
+        getifaddrs(&ifap);
+
+        int ip_count = 0;
+        for (struct ifaddrs *ifa = ifap; ifa; ifa = ifa->ifa_next) {
+            if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET) continue;
+            struct sockaddr_in *sin = (struct sockaddr_in *)ifa->ifa_addr;
+            /* skip loopback (127.x.x.x) */
+            if ((ntohl(sin->sin_addr.s_addr) >> 24) == 127) continue;
+
+            char ip[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &sin->sin_addr, ip, sizeof(ip));
+
+            mvaddch(r, px, ACS_VLINE);
+            if (ip_count == 0) {
+                attron(A_BOLD); mvprintw(r, px+2, " %-8s", "Address"); attroff(A_BOLD);
+            } else {
+                mvprintw(r, px+2, "          "); /* indent continuation */
+            }
+            attron(A_BOLD | COLOR_PAIR(2));
+            mvprintw(r, px+11, "%-16s", ip);
+            attroff(A_BOLD | COLOR_PAIR(2));
+            mvprintw(r, px+28, "(%s)", ifa->ifa_name);
+            for (int _i = px+28+2+(int)strlen(ifa->ifa_name)+1; _i < px+pw-1; _i++)
+                mvaddch(r, _i, ' ');
+            mvaddch(r, px+pw-1, ACS_VLINE); r++;
+            ip_count++;
+        }
+        if (ifap) freeifaddrs(ifap);
+
+        if (ip_count == 0) {
+            /* No non-loopback interface found */
+            mvaddch(r, px, ACS_VLINE);
+            attron(A_BOLD); mvprintw(r, px+2, " %-8s", "Address"); attroff(A_BOLD);
+            mvprintw(r, px+11, "%-*s", pw-13, "(no external interface found)");
+            mvaddch(r, px+pw-1, ACS_VLINE); r++;
+        }
+
+        /* Hint row */
+        mvaddch(r, px, ACS_VLINE);
+        attron(A_DIM);
+        mvprintw(r, px+2, " Connect from bbeat_client: E → enter IP:port above");
+        for (int _i = px+54; _i < px+pw-1; _i++) mvaddch(r, _i, ' ');
+        attroff(A_DIM);
+        mvaddch(r, px+pw-1, ACS_VLINE); r++;
+
+    } else {
+        /* Streaming not active */
+        mvaddch(r, px, ACS_VLINE);
+        attron(A_DIM);
+        mvprintw(r, px+2, " %-*s", pw-5,
+                 "Not active  (use --audio=stream or --audio=both)");
+        attroff(A_DIM);
+        mvaddch(r, px+pw-1, ACS_VLINE); r++;
+    }
+
+    /* Divider before actions */
     mvaddch(r, px, ACS_LTEE); mvhline(r, px+1, ACS_HLINE, pw-2);
     mvaddch(r, px+pw-1, ACS_RTEE); r++;
 
@@ -1809,6 +1890,7 @@ Project *editor_run(Project *p)
         }
 
         g_editor.stream_clients = stream_clients();
+        g_editor.stream_port    = stream_get_port();
         draw_all(p);
 
         int ch = getch();

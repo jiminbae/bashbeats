@@ -15,6 +15,7 @@
 int  stream_init   (int port);              /* open server socket; 0=ok, -1=fail */
 void stream_send   (const int16_t *buf, int frames); /* broadcast PCM to all clients */
 int  stream_clients(void);                  /* current connected client count */
+int  stream_get_port(void);                 /* listening port, 0 if not active */
 void stream_cleanup(void);
 
 #endif /* BASHBEATS_STREAM_H */

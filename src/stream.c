@@ -16,6 +16,7 @@
 static int s_server_fd              = -1;
 static int s_client_fds[MAX_CLIENTS];
 static int s_client_count           = 0;
+static int s_port                   = 0;
 static pthread_mutex_t s_stream_mtx = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t       s_accept_tid;
 static volatile int    s_running    = 0;
@@ -81,6 +82,7 @@ int stream_init(int port)
 
     memset(s_client_fds, -1, sizeof(s_client_fds));
     s_client_count = 0;
+    s_port         = port;
     s_running      = 1;
 
     if (pthread_create(&s_accept_tid, NULL, accept_loop, NULL) != 0) {
@@ -129,6 +131,12 @@ int stream_clients(void)
     int n = s_client_count;
     pthread_mutex_unlock(&s_stream_mtx);
     return n;
+}
+
+/* ── stream_get_port ── */
+int stream_get_port(void)
+{
+    return s_running ? s_port : 0;
 }
 
 /* ── stream_cleanup ── */

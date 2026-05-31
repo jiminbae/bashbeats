@@ -200,7 +200,7 @@ TRACK 5
   NAME treble_back
   INSTR samples/Alesis-Sanctuary-QCard-Loose-Bell-C5.wav
   BASE  72
-  VOL   0.25
+  VOL   0.45
   MUTE  0
   # start_tick  note  duration_tick  velocity
   16  91  1  80
@@ -337,7 +337,7 @@ TRACK 6
   NAME main_melody
   INSTR samples/piano-C4.wav
   BASE  72
-  VOL   1.00
+  VOL   0.90
   MUTE  0
   # start_tick  note  duration_tick  velocity
   4  77  4  80
@@ -403,7 +403,7 @@ TRACK 7
   NAME main_melodycp
   INSTR samples/piano-C4.wav
   BASE  72
-  VOL   1.00
+  VOL   0.90
   MUTE  0
   # start_tick  note  duration_tick  velocity
   4  89  4  80

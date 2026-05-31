@@ -36,6 +36,7 @@ typedef struct {
 
     /* Stream info (display only) */
     int stream_clients;
+    int stream_port;
 
     /* Track-mode playhead cursor */
     uint32_t play_cursor;
