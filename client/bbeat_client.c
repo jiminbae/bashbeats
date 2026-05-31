@@ -297,6 +297,8 @@ typedef struct {
     int                 avail[AQ_NBUFS];
     int                 next;
     int                 open;
+    int                 in_flight;  /* buffers currently submitted to AudioQueue */
+    int                 starved;    /* queue ran dry and has stopped */
     pthread_mutex_t     mtx;
     pthread_cond_t      cond;
 } AQCtx;
@@ -308,11 +310,13 @@ static void aq_cb(void *ud, AudioQueueRef q, AudioQueueBufferRef buf) {
     pthread_mutex_lock(&a->mtx);
     for (int i = 0; i < AQ_NBUFS; i++)
         if (a->bufs[i] == buf) { a->avail[i] = 1; break; }
+    if (--a->in_flight == 0) a->starved = 1;  /* queue emptied, will stop */
     pthread_cond_signal(&a->cond);
     pthread_mutex_unlock(&a->mtx);
 }
 
 static int audio_open(void) {
+    memset(&g_aq, 0, sizeof(g_aq));  /* reset in_flight/starved on reconnect */
     pthread_mutex_init(&g_aq.mtx, NULL);
     pthread_cond_init(&g_aq.cond, NULL);
     AudioStreamBasicDescription fmt;
@@ -345,12 +349,17 @@ static void audio_write(const void *data, size_t len) {
         while (!g_aq.avail[idx])
             pthread_cond_wait(&g_aq.cond, &g_aq.mtx);
         g_aq.avail[idx] = 0;
+        g_aq.in_flight++;
+        int restart = g_aq.starved;
+        if (restart) g_aq.starved = 0;
         pthread_mutex_unlock(&g_aq.mtx);
         size_t chunk = len < (size_t)AQ_BUFSZ ? len : (size_t)AQ_BUFSZ;
         AudioQueueBufferRef buf = g_aq.bufs[idx];
         memcpy(buf->mAudioData, p, chunk);
         buf->mAudioDataByteSize = (UInt32)chunk;
         AudioQueueEnqueueBuffer(g_aq.q, buf, 0, NULL);
+        /* If the queue starved and stopped, restart it after enqueuing */
+        if (restart) AudioQueueStart(g_aq.q, NULL);
         p += chunk; len -= chunk;
         g_aq.next = (idx + 1) % AQ_NBUFS;
     }

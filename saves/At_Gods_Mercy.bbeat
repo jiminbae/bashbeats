@@ -6,7 +6,7 @@ TRACK 0
   NAME main_bass
   INSTR samples/Alesis-Fusion-Acoustic-Bass-C2.wav
   BASE  36
-  VOL   1.00
+  VOL   0.95
   MUTE  0
   # start_tick  note  duration_tick  velocity
   16  39  2  80

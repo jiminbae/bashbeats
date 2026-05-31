@@ -281,9 +281,9 @@ void editor_draw_track(const Project *p)
     mvhline(r, 0, ACS_HLINE, COLS);
     r++;
 
-    // edited from this point
 
-    /* ── [정밀 수정본] 안전한 수동 버퍼 매핑 방식으로 경고 및 띄어쓰기 버그 완전 해결 ── */
+
+    /* 수동 버퍼 매핑 방식으로 변경  */
     for (int t = 0; t < p->track_count && r <= body_end; t++, r++) {
         int is_sel = (t == g_editor.track_cursor);
 
@@ -295,7 +295,7 @@ void editor_draw_track(const Project *p)
         /* 1. Col 0: 선택자 (Selector) */
         row[C_SEL] = is_sel ? '>' : ' ';
 
-        /* 2. Cols 1-2: 우측 정렬된 트랙 번호 (%2d 안전 조립) */
+        /* 2. Cols 1-2: 우측 정렬 트랙 번호 */
         {
             char tmp[4];
             snprintf(tmp, sizeof(tmp), "%2d", t + 1);
@@ -394,84 +394,7 @@ void editor_draw_track(const Project *p)
             mvchgat(r, C_EDIT, 6, A_BOLD, 9, NULL);
     }
 
-    // for (int t = 0; t < p->track_count && r <= body_end; t++, r++) {
-    //     int is_sel = (t == g_editor.track_cursor);
-
-    //     /* ── Build the entire row as a plain string first, then print once.
-    //      *    This avoids attron/attroff ANSI sequences shifting column positions. ── */
-    //     char row[TERM_COLS + 1];
-    //     memset(row, ' ', TERM_COLS);
-    //     row[TERM_COLS] = '\0';
-
-    //     /* Col 0: selector */
-    //     row[C_SEL] = is_sel ? '>' : ' ';
-
-    //     /* Cols 1-2: right-aligned track number */
-    //     { char tmp[3]; snprintf(tmp, sizeof(tmp), "%2d", t + 1);
-    //       row[1] = tmp[0]; row[2] = tmp[1]; }
-
-    //     /* Cols 6-21: name (16 chars) */
-    //     { const char *nm = p->tracks[t].name;
-    //       int nl = (int)strlen(nm);
-    //       for (int i = 0; i < 16; i++)
-    //           row[C_NAME + i] = (i < nl) ? nm[i] : ' '; }
-
-    //     /* Cols 22-27: mute */
-    //     if (p->tracks[t].mute)
-    //         memcpy(row + C_MUTE, "[MUTE]", 6);
-
-    //     /* Cols 29-36: vol bar using '#'/'-' */
-    //     { int filled = (int)(p->tracks[t].volume * 8 + 0.5f);
-    //       if (filled > 8) filled = 8;
-    //       for (int i = 0; i < 8; i++)
-    //           row[C_VOL + i] = (i < filled) ? '#' : '-'; }
-
-    //     /* Cols 37-42: vol percent */
-    //     { char tmp[8]; snprintf(tmp, sizeof(tmp), "%3d%%  ",
-    //           (int)(p->tracks[t].volume * 100 + 0.5f));
-    //       for (int i = 0; i < 6 && tmp[i]; i++) row[C_VPCT + i] = tmp[i]; }
-
-    //     /* Cols 43-49: note count */
-    //     { char tmp[8]; snprintf(tmp, sizeof(tmp), "%-7d", p->tracks[t].event_count);
-    //       for (int i = 0; i < 7 && tmp[i]; i++) row[C_NOTE + i] = tmp[i]; }
-
-    //     /* Cols 50-56: base note */
-    //     { int bn = p->tracks[t].base_note;
-    //       const char *bns = (bn < 0) ? "PERC" : midi_note_name(bn);
-    //       int bl = (int)strlen(bns);
-    //       for (int i = 0; i < 7; i++) row[C_BASE + i] = (i < bl) ? bns[i] : ' '; }
-
-    //     /* Cols 57-91: instrument basename */
-    //     { const char *ip = p->tracks[t].instrument;
-    //       const char *sl = strrchr(ip, '/');
-    //       const char *inm = (sl && sl[1]) ? sl + 1 : ip;
-    //       if (!inm[0]) inm = "(none)";
-    //       int il = (int)strlen(inm);
-    //       for (int i = 0; i < 35; i++) row[C_INST + i] = (i < il) ? inm[i] : ' '; }
-
-    //     /* Col 92+: [EDIT] marker */
-    //     if (t == g_editor.cur_track && g_editor.mode == MODE_EDIT)
-    //         memcpy(row + C_EDIT, "[EDIT]", 6);
-
-    //     /* Print the whole row in one shot — no color changes during print */
-    //     attrset(A_NORMAL);
-    //     mvaddnstr(r, 0, row, COLS < TERM_COLS ? COLS : TERM_COLS);
-
-    //     /* Apply colors with mvchgat (changes attrs of already-drawn chars) */
-    //     short sel_pair = is_sel ? 3 : 6;
-    //     attr_t  sel_attr = is_sel ? A_BOLD : A_NORMAL;
-
-    //     mvchgat(r, C_SEL, C_MUTE - C_SEL,  sel_attr,  sel_pair, NULL); /* sel+num+name */
-    //     if (p->tracks[t].mute)
-    //         mvchgat(r, C_MUTE, 6, A_BOLD, 4, NULL);                     /* [MUTE] red */
-    //     mvchgat(r, C_VOL,  8, A_NORMAL, 2, NULL);                       /* vol bar green */
-    //     mvchgat(r, C_VPCT, 6, sel_attr,  sel_pair, NULL);               /* vol% */
-    //     mvchgat(r, C_NOTE, 7, sel_attr,  sel_pair, NULL);               /* notes */
-    //     mvchgat(r, C_BASE, 7, sel_attr,  sel_pair, NULL);               /* base */
-    //     mvchgat(r, C_INST, 35, A_NORMAL, 5, NULL);                      /* instrument */
-    //     if (t == g_editor.cur_track && g_editor.mode == MODE_EDIT)
-    //         mvchgat(r, C_EDIT, 6, A_BOLD, 9, NULL);                     /* [EDIT] */
-    // }
+    
 
     #undef C_SEL
     #undef C_NAME
