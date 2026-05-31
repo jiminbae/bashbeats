@@ -6,10 +6,9 @@
  *
  * Audio backends:
  *   Linux   → aplay (ALSA; install alsa-utils if missing)
- *   macOS   → AudioQueue (CoreAudio, built-in; no extra deps)
  *   Windows → WinMM waveOut (built-in)
  *
- * UI: ANSI terminal, works on Linux, macOS, and Windows 10+
+ * UI: ANSI terminal, works on Linux and Windows 10+
  *
  * Threading model (anti-stutter):
  *   net_thread   : TCP recv → ring buffer (absorbs network jitter)
@@ -46,10 +45,6 @@ static inline void net_deinit(void) { WSACleanup(); }
 #  include <termios.h>
 #  include <sys/select.h>
 #  include <sys/time.h>
-#  ifdef __APPLE__
-#    include <AudioToolbox/AudioQueue.h>
-#    include <CoreFoundation/CoreFoundation.h>
-#  endif
 typedef int sock_t;
 #  define SOCK_NONE     (-1)
 #  define sock_close(s)  close(s)
@@ -284,97 +279,6 @@ static void audio_write(const void *d, size_t n)
     { if (g_pipe) fwrite(d,1,n,g_pipe); }
 static void audio_close(void)
     { if (g_pipe) { pclose(g_pipe); g_pipe=NULL; } }
-
-/* ── macOS: CoreAudio AudioQueue ─────────────────────────────────── */
-#elif defined(__APPLE__)
-
-#define AQ_NBUFS  8
-#define AQ_BUFSZ  AUDIO_CHUNK
-
-typedef struct {
-    AudioQueueRef       q;
-    AudioQueueBufferRef bufs[AQ_NBUFS];
-    int                 avail[AQ_NBUFS];
-    int                 next;
-    int                 open;
-    int                 in_flight;  /* buffers currently submitted to AudioQueue */
-    int                 starved;    /* queue ran dry and has stopped */
-    pthread_mutex_t     mtx;
-    pthread_cond_t      cond;
-} AQCtx;
-static AQCtx g_aq;
-
-static void aq_cb(void *ud, AudioQueueRef q, AudioQueueBufferRef buf) {
-    (void)q;
-    AQCtx *a = (AQCtx *)ud;
-    pthread_mutex_lock(&a->mtx);
-    for (int i = 0; i < AQ_NBUFS; i++)
-        if (a->bufs[i] == buf) { a->avail[i] = 1; break; }
-    if (--a->in_flight == 0) a->starved = 1;  /* queue emptied, will stop */
-    pthread_cond_signal(&a->cond);
-    pthread_mutex_unlock(&a->mtx);
-}
-
-static int audio_open(void) {
-    memset(&g_aq, 0, sizeof(g_aq));  /* reset in_flight/starved on reconnect */
-    pthread_mutex_init(&g_aq.mtx, NULL);
-    pthread_cond_init(&g_aq.cond, NULL);
-    AudioStreamBasicDescription fmt;
-    memset(&fmt, 0, sizeof(fmt));
-    fmt.mSampleRate       = PCM_RATE;
-    fmt.mFormatID         = kAudioFormatLinearPCM;
-    fmt.mFormatFlags      = kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked;
-    fmt.mBytesPerPacket   = PCM_FRAMESZ;
-    fmt.mFramesPerPacket  = 1;
-    fmt.mBytesPerFrame    = PCM_FRAMESZ;
-    fmt.mChannelsPerFrame = PCM_CHAN;
-    fmt.mBitsPerChannel   = PCM_BITS;
-    if (AudioQueueNewOutput(&fmt, aq_cb, &g_aq, NULL, NULL, 0, &g_aq.q) != noErr)
-        return -1;
-    for (int i = 0; i < AQ_NBUFS; i++) {
-        AudioQueueAllocateBuffer(g_aq.q, AQ_BUFSZ, &g_aq.bufs[i]);
-        g_aq.avail[i] = 1;
-    }
-    AudioQueueStart(g_aq.q, NULL);
-    g_aq.open = 1;
-    return 0;
-}
-
-static void audio_write(const void *data, size_t len) {
-    if (!g_aq.open) return;
-    const uint8_t *p = (const uint8_t *)data;
-    while (len > 0) {
-        int idx = g_aq.next;
-        pthread_mutex_lock(&g_aq.mtx);
-        while (!g_aq.avail[idx])
-            pthread_cond_wait(&g_aq.cond, &g_aq.mtx);
-        g_aq.avail[idx] = 0;
-        g_aq.in_flight++;
-        int restart = g_aq.starved;
-        if (restart) g_aq.starved = 0;
-        pthread_mutex_unlock(&g_aq.mtx);
-        size_t chunk = len < (size_t)AQ_BUFSZ ? len : (size_t)AQ_BUFSZ;
-        AudioQueueBufferRef buf = g_aq.bufs[idx];
-        memcpy(buf->mAudioData, p, chunk);
-        buf->mAudioDataByteSize = (UInt32)chunk;
-        AudioQueueEnqueueBuffer(g_aq.q, buf, 0, NULL);
-        /* If the queue starved and stopped, restart it after enqueuing */
-        if (restart) AudioQueueStart(g_aq.q, NULL);
-        p += chunk; len -= chunk;
-        g_aq.next = (idx + 1) % AQ_NBUFS;
-    }
-}
-
-static void audio_close(void) {
-    if (!g_aq.open) return;
-    AudioQueueStop(g_aq.q, true);
-    for (int i = 0; i < AQ_NBUFS; i++)
-        AudioQueueFreeBuffer(g_aq.q, g_aq.bufs[i]);
-    AudioQueueDispose(g_aq.q, true);
-    pthread_mutex_destroy(&g_aq.mtx);
-    pthread_cond_destroy(&g_aq.cond);
-    g_aq.open = 0;
-}
 
 /* ── Windows: WinMM waveOut ──────────────────────────────────────── */
 #elif defined(_WIN32)

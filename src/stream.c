@@ -36,6 +36,13 @@ static void *accept_loop(void *arg)
 
         pthread_mutex_lock(&s_stream_mtx);
         if (s_client_count < MAX_CLIENTS) {
+            /* Large send buffer so stream_send's write() rarely blocks the
+             * audio thread.  Short send timeout so a stuck client is dropped
+             * quickly rather than stalling the audio engine indefinitely. */
+            int sndbuf = 1 << 20;  /* 1 MB */
+            setsockopt(cfd, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
+            struct timeval sndtimeo = {0, 100000};  /* 100 ms */
+            setsockopt(cfd, SOL_SOCKET, SO_SNDTIMEO, &sndtimeo, sizeof(sndtimeo));
             s_client_fds[s_client_count++] = cfd;
             fprintf(stderr, "[stream] client connected: %s (total=%d)\n",
                     inet_ntoa(client_addr.sin_addr), s_client_count);
