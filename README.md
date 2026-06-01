@@ -318,11 +318,13 @@ See [docs/MANUAL.md](docs/MANUAL.md) for the full user manual.
 ## Disclaimer
 
 All sample instrument files in this repository are program generated or from freewavsamples.com (see: https://freewavesamples.com/about-us-license).
-All sample .bbeat project files in this repository were arranged/transcribed by us, but the original compositions are not ours.
+
+All sample .bbeat project files in this repository were arranged/transcribed by us, But the original compositions are not ours.
+
 Original compositions belong to their respective owners.
 
 | File | Original Composition | Composer |
 |------|----------------------|----------|
 | Canon*.bbeat | Canon in D | Johann Pachelbel |
-| At_Gods_Mercy.bbeat | At God's Mercy (reruriri) | reruriri |
+| At_Gods_Mercy.bbeat | At God's Mercy | reruriri |
 | any other *.bbeat | — | Original work by us |
